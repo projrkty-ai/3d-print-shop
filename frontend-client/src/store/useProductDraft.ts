@@ -28,7 +28,11 @@ function isSurface(value: unknown): value is SurfaceCustomization {
     (value.textureDataUrl === null || (
       typeof value.textureDataUrl === 'string' && value.textureDataUrl.length <= 3_000_000 &&
       /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\r\n]+$/.test(value.textureDataUrl)
-    ));
+    )) &&
+    // Absent in drafts saved before the shop texture library / 3D lettering.
+    (value.textureId === undefined || value.textureId === null || typeof value.textureId === 'string') &&
+    (value.extrudedText === undefined || typeof value.extrudedText === 'string') &&
+    (value.extrudedSizeMm === undefined || (typeof value.extrudedSizeMm === 'number' && Number.isFinite(value.extrudedSizeMm)));
 }
 
 function isProductDraft(value: unknown): value is ProductDraft {

@@ -24,6 +24,15 @@ const decorationLayout = z.object({
   texture: z.object({
     ...surfacePoint, width: z.number().min(1).max(100), height: z.number().min(1).max(100),
   }).optional(),
+  // Value bounds are business rules, reported by the shared validateProduct.
+  extrudedText: z.object({
+    x: z.number(), y: z.number(), z: z.number(),
+    rotationDeg: z.number(), tiltDeg: z.number(),
+    sizeMm: z.number(), depthMm: z.number(), lineSpacing: z.number(),
+    horizontalAlign: z.enum(['left', 'center', 'right']),
+    verticalAlign: z.enum(['top', 'middle', 'bottom']),
+    defaultText: z.string().max(200),
+  }).optional(),
 });
 
 const productFields = {
@@ -89,7 +98,18 @@ const productFields = {
     colorChoice: z.boolean(),
     colorPrice: z.number(),
   }),
-  texture: z.object({ enabled: z.boolean(), price: z.number() }),
+  texture: z.object({
+    enabled: z.boolean(),
+    price: z.number(),
+    // Both optional so products saved before the texture library stay valid.
+    options: z.array(z.object({
+      id,
+      name: shortText(80),
+      // Shop textures are drawn onto the preview canvas, which needs images served by the API itself.
+      url: z.string().max(500).regex(/^\/(?!\/)\S+$/, t('textureImageUrl')),
+    })).max(50).optional(),
+    allowCustom: z.boolean().optional(),
+  }),
   decorationLayout: decorationLayout.optional(),
 };
 
@@ -114,6 +134,9 @@ const surfaceCustomization = z.object({
     .max(3_000_000)
     .regex(/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/, t('textureUrl'))
     .nullable(),
+  textureId: z.string().max(120).nullable().optional(),
+  extrudedText: z.string().max(500).optional(),
+  extrudedSizeMm: z.number().optional(),
 });
 
 const customization = surfaceCustomization.extend({

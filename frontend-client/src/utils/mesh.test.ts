@@ -23,6 +23,33 @@ function boxTriangles(w: number, d: number, h: number): Triangle[] {
   ];
 }
 
+const move = (triangles: Triangle[], dx: number, dy: number, dz: number): Triangle[] =>
+  triangles.map((triangle) => triangle.map(([x, y, z]) => [x + dx, y + dy, z + dz]) as Triangle);
+
+/** A printed cup: outer walls facing out, and a separate inner shell facing into the cavity. */
+function cupTriangles(x: number): Triangle[] {
+  const inner = move(boxTriangles(6, 6, 10), x + 2, 2, 1).map(([a, b, c]) => [a, c, b] as Triangle);
+  return [...move(boxTriangles(10, 10, 10), x, 0, 0), ...inner];
+}
+
+/** Decorated side triangles with their centroid, normal and mean u. */
+function decoratedTriangles({ geometry, surface }: ReturnType<typeof prepareMeshForPreview>) {
+  const position = geometry.getAttribute('position');
+  const normal = geometry.getAttribute('normal');
+  const uv = geometry.getAttribute('uv');
+  return geometry.groups.flatMap((group) => {
+    if (surface.slots?.[group.materialIndex ?? 0] === 'plain') return [];
+    return Array.from({ length: group.count / 3 }, (_, i) => {
+      const v = group.start + i * 3;
+      const mean = (get: (index: number) => number) => (get(v) + get(v + 1) + get(v + 2)) / 3;
+      return {
+        x: mean((index) => position.getX(index)), z: mean((index) => position.getZ(index)),
+        nx: normal.getX(v), nz: normal.getZ(v), u: mean((index) => uv.getX(index)), v: mean((index) => uv.getY(index)),
+      };
+    });
+  });
+}
+
 function binaryStl(triangles: Triangle[]): ArrayBuffer {
   const buffer = new ArrayBuffer(84 + triangles.length * 50);
   const view = new DataView(buffer);
@@ -138,5 +165,52 @@ describe('prepareMeshForPreview', () => {
     const before = Array.from(raw.getAttribute('position').array);
     prepareMeshForPreview(raw);
     expect(Array.from(raw.getAttribute('position').array)).toEqual(before);
+  });
+
+  it('leaves the inside walls of a hollow model undecorated, so text and textures appear outside only', () => {
+    const file = readFileSync(`${import.meta.dirname}/../../fixtures/models/twisted-star-vase.stl`);
+    const { geometry, surface } = prepareMeshForPreview(parseStl(Uint8Array.from(file).buffer));
+    const position = geometry.getAttribute('position');
+    const normal = geometry.getAttribute('normal');
+    const facing = { decoratedInward: 0, decoratedOutward: 0, plainInward: 0 };
+    geometry.groups.forEach((group) => {
+      const decorated = surface.slots?.[group.materialIndex ?? 0] !== 'plain';
+      for (let vertex = group.start; vertex < group.start + group.count; vertex += 3) {
+        const x = (position.getX(vertex) + position.getX(vertex + 1) + position.getX(vertex + 2)) / 3;
+        const z = (position.getZ(vertex) + position.getZ(vertex + 1) + position.getZ(vertex + 2)) / 3;
+        const radial = (normal.getX(vertex) * x + normal.getZ(vertex) * z) / Math.hypot(x, z);
+        if (Math.abs(normal.getY(vertex)) > 0.75) continue; // top and bottom rims
+        if (decorated) facing[radial < 0 ? 'decoratedInward' : 'decoratedOutward']++;
+        else if (radial < -0.2) facing.plainInward++;
+      }
+    });
+    // The demo vase has a real inner wall: it exists, and none of it carries decoration.
+    expect(facing.plainInward).toBeGreaterThan(1000);
+    expect(facing.decoratedOutward).toBeGreaterThan(1000);
+    expect(facing.decoratedInward).toBe(0);
+  });
+
+  it('wraps every object of a plate around its own axis, so each carries the decoration on its front', () => {
+    const prepared = prepare([...cupTriangles(0), ...cupTriangles(30)]);
+    const triangles = decoratedTriangles(prepared);
+    for (const side of [-1, 1]) {
+      const cup = triangles.filter((triangle) => Math.sign(triangle.x) === side);
+      const centerX = (Math.min(...cup.map((t) => t.x)) + Math.max(...cup.map((t) => t.x))) / 2;
+      const front = cup.filter((triangle) => triangle.nz > 0.9);
+      expect(front.length).toBeGreaterThan(0);
+      // Straight ahead of this cup, not skewed around the middle of the plate.
+      for (const triangle of front) expect(triangle.u).toBeCloseTo(0.5, 1);
+      // Only outer walls: every decorated face points away from its own cup's axis.
+      for (const triangle of cup) expect(triangle.nx * (triangle.x - centerX) + triangle.nz * triangle.z).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps loose pieces stacked on one footprint together as one object', () => {
+    const prepared = prepare([...boxTriangles(10, 10, 10), ...move(boxTriangles(10, 10, 10), 0, 0, 10.5)]);
+    const vs = decoratedTriangles(prepared).map((triangle) => triangle.v).sort((a, b) => a - b);
+    // One shared wrap from bottom to top, not two separate 0–1 ranges.
+    expect(vs[0]).toBeLessThan(0.25);
+    expect(vs.at(-1)).toBeGreaterThan(0.75);
+    expect(vs.filter((v) => v > 0.45 && v < 0.55)).toEqual([]);
   });
 });

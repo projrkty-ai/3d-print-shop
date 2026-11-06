@@ -910,6 +910,86 @@ code,
   gap: 0.5rem;
 }
 
+/* Picture texture choices: none, shop textures and the customer's own picture. */
+.texture-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.texture-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.8rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.texture-option:hover {
+  border-color: var(--accent);
+}
+
+.texture-option.is-selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+}
+
+.texture-option:has(input:focus-visible) {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 2px;
+}
+
+.texture-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.texture-option__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 1.6rem;
+}
+
+.texture-option__image--empty {
+  background: repeating-linear-gradient(135deg, var(--bg) 0 8px, var(--border) 8px 9px);
+}
+
+.texture-option__image--upload {
+  border: 2px dashed #cbd2dd;
+}
+
+.texture-option__name {
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+
+.config-details__texture {
+  width: 28px;
+  height: 28px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
 .summary {
   padding: 1.25rem;
   background: var(--surface);
@@ -1011,7 +1091,29 @@ code,
   height: 100%;
   object-fit: cover;
   mix-blend-mode: multiply;
-  filter: grayscale(1);
+}
+
+/* Rendered model of the configured print (colors, engraving and texture). */
+.cart-item__swatch--model {
+  background: #eef1f5;
+}
+
+.cart-item__swatch--model img {
+  mix-blend-mode: normal;
+}
+
+.item-thumbnail__open {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+
+.item-thumbnail__open:focus-visible {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 2px;
 }
 
 .cart-item__name {
@@ -1819,15 +1921,16 @@ textarea {
 
 .order-item {
   display: grid;
-  grid-template-columns: 64px 1fr auto;
+  grid-template-columns: 96px 1fr auto;
+  align-items: start;
   gap: 1rem;
   padding: 1rem 0;
   border-bottom: 1px solid var(--border);
 }
 
 .order-item .cart-item__swatch {
-  width: 64px;
-  height: 64px;
+  width: 96px;
+  height: 96px;
 }
 
 .order-item__total {
@@ -1843,6 +1946,62 @@ textarea {
 .order-item__total strong {
   font-size: 1rem;
   color: var(--text);
+}
+
+/* Shop texture library in the product editor. */
+.texture-library {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.texture-library h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.texture-library p {
+  margin: 0;
+}
+
+.texture-library > .btn {
+  justify-self: start;
+}
+
+.texture-library__list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.texture-library__item {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.texture-library__item img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.texture-library__item .field {
+  margin: 0;
+}
+
+.texture-library__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .order-item__texture {
@@ -1887,11 +2046,90 @@ textarea {
   }
 
   .order-item {
-    grid-template-columns: 48px 1fr;
+    grid-template-columns: 64px 1fr;
+  }
+
+  .order-item .cart-item__swatch {
+    width: 64px;
+    height: 64px;
   }
 
   .order-item__total {
     grid-column: 2;
     align-items: flex-start;
+  }
+}
+
+/* Ordered print in 3D with its order parameters (admin order page). */
+.viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem 1rem;
+  overflow-y: auto;
+  background: rgba(16, 24, 40, 0.55);
+}
+
+.viewer {
+  width: min(1200px, 100%);
+  margin: 0;
+}
+
+.viewer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.viewer__header h2,
+.viewer__header p {
+  margin: 0;
+}
+
+.viewer__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.viewer__models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.viewer__models > p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* One model fills the column; plates of a set share it, wrapping below 260px each. */
+.viewer__model {
+  flex: 1 1 260px;
+  min-width: 0;
+  margin: 0;
+}
+
+.viewer__model figcaption {
+  margin-bottom: 0.4rem;
+}
+
+.viewer__details h3 {
+  margin-top: 0;
+}
+
+.viewer__details .summary__lines {
+  margin-top: 1rem;
+}
+
+@media (max-width: 860px) {
+  .viewer__layout {
+    grid-template-columns: 1fr;
   }
 }

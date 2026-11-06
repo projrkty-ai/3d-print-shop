@@ -1,4 +1,4 @@
-import type { ColorOption, Product } from '../types';
+import type { ColorOption, Product, TextureOption } from '../types';
 
 const PLA_COLORS: ColorOption[] = [
   { id: 'white', name: 'Arctic White', hex: '#f4f4f2', priceDelta: 0 },
@@ -11,6 +11,13 @@ const PLA_COLORS: ColorOption[] = [
 
 /** Fresh copies, so changing one product's colors can't leak into another (or another catalog). */
 const plaColors = () => PLA_COLORS.map((color) => ({ ...color }));
+
+/** Bundled shop textures (backend/public/models/textures, made by scripts/generate-demo-textures.mjs). */
+const shopTextures = (): TextureOption[] => [
+  { id: 'terrazzo', name: 'Terrazzo', url: '/models/textures/terrazzo.png' },
+  { id: 'sunset', name: 'Sunset stripes', url: '/models/textures/sunset.png' },
+  { id: 'waves', name: 'Ocean waves', url: '/models/textures/waves.png' },
+];
 
 const now = '2026-10-01T12:00:00.000Z';
 
@@ -121,7 +128,7 @@ export function createSeedProducts(): Product[] {
         colorChoice: true,
         colorPrice: 3,
       },
-      texture: { enabled: true, price: 7 },
+      texture: { enabled: true, price: 7, options: shopTextures(), allowCustom: true },
       createdAt: now,
       updatedAt: now,
     },
@@ -179,6 +186,13 @@ export function createSeedProducts(): Product[] {
         colorPrice: 2,
       },
       texture: { enabled: false, price: 0 },
+      // Raised 3D lettering lying flat on the lid; customers edit the text and size.
+      decorationLayout: {
+        extrudedText: {
+          x: 0, y: 0, z: 80, rotationDeg: 0, tiltDeg: 90, sizeMm: 9, depthMm: 1.2, lineSpacing: 1.2,
+          horizontalAlign: 'center', verticalAlign: 'middle', defaultText: 'With love',
+        },
+      },
       createdAt: now,
       updatedAt: now,
     },
@@ -211,6 +225,61 @@ export function createSeedProducts(): Product[] {
         colorPrice: 0,
       },
       texture: { enabled: true, price: 10 },
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'star-vase-set',
+      name: 'Star Vase Set',
+      description:
+        'A full-size twisted star vase with two matching 60% minis, printed on two plates and sold as one set. Give each plate its own filament, lettering and texture — the scale applies to the whole set.',
+      category: 'Home decor',
+      material: 'PLA+',
+      // The editor's analysis of the selected plates: the largest extent per axis and the total volume.
+      model: { widthMm: 117.6, depthMm: 95.9, heightMm: 180, volumeCm3: 171.2 },
+      basePrice: 44,
+      fixedFee: 6,
+      productionDays: 4,
+      imageUrl: '',
+      shape: 'vase',
+      mesh: {
+        url: '/models/star-vase-project.3mf',
+        format: '3mf',
+        fileName: 'star-vase-project.3mf',
+        sizeBytes: 59735,
+        triangleCount: 17472,
+        parts: [],
+        plates: [
+          {
+            id: 1, name: 'Vase', objectCount: 1, parts: [],
+            model: { widthMm: 95.9, depthMm: 95.9, heightMm: 180, volumeCm3: 119.6 },
+          },
+          {
+            id: 2, name: 'Mini vases', objectCount: 2, parts: [],
+            model: { widthMm: 117.6, depthMm: 57.6, heightMm: 108, volumeCm3: 51.6 },
+            // Each mini is decorated on its own front: picture above, lettering below.
+            decorationLayout: {
+              text: { centerX: 50, centerY: 25, horizontalAlign: 'center', verticalAlign: 'middle' },
+              // About square on a mini's unwrapped surface (≈1.7 × wider than tall).
+              texture: { centerX: 50, centerY: 62, width: 24, height: 40 },
+            },
+          },
+        ],
+        plate: 1,
+        selectedPlates: [1, 2],
+      },
+      published: true,
+      colors: plaColors(),
+      engraving: {
+        enabled: true,
+        maxLength: 24,
+        maxLines: 2,
+        price: 5,
+        fonts: ['Georgia', 'Arial', 'Brush Script MT'],
+        colorChoice: true,
+        colorPrice: 3,
+      },
+      texture: { enabled: true, price: 6, options: shopTextures(), allowCustom: true },
       createdAt: now,
       updatedAt: now,
     },

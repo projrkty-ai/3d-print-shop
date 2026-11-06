@@ -27,7 +27,9 @@ vi.mock('../../store/ProductsContext', () => ({
 }));
 vi.mock('../../components/LazyProductPreview', () => ({
   LazyProductPreview: (props: ComponentProps<typeof ProductPreview>) => (
-    <div data-preview={props.meshPlate ?? 'root'} data-plates={JSON.stringify(props.meshPlates)} data-layout={JSON.stringify(props.decorationLayout)} />
+    <div data-preview={props.meshPlate ?? 'root'} data-plates={JSON.stringify(props.meshPlates)} data-layout={JSON.stringify(props.decorationLayout)}
+      data-texture={props.textureUrl ?? undefined}
+      data-lettering={props.extrudedText ? JSON.stringify({ text: props.extrudedText.text, sizeMm: props.extrudedText.sizeMm }) : undefined} />
   ),
 }));
 vi.mock('./ModelFileCard', () => ({
@@ -365,7 +367,7 @@ describe('admin decoration placement', () => {
     expect(JSON.parse(element('[data-preview]').getAttribute('data-layout')!)).toEqual({
       texture: { centerX: 50, centerY: 50, width: 25, height: 25 },
     });
-    await click('Reset to repeating texture');
+    await click('Reset to default placement');
     expect(element('[data-preview]').hasAttribute('data-layout')).toBe(false);
     await change('Text vertical anchor:', '75');
     await click('Replace model');
@@ -386,3 +388,135 @@ describe('admin decoration placement', () => {
     expect(updateProduct.mock.calls[0]?.[1].decorationLayout?.texture?.width).toBe(35);
   });
 });
+
+describe('shop texture library', () => {
+  function libraryUpload(): HTMLInputElement {
+    return element<HTMLInputElement>('[aria-label="Shop textures"] input[type="file"]');
+  }
+  async function chooseFiles(files: File[]) {
+    const input = libraryUpload();
+    Object.defineProperty(input, 'files', { value: files, configurable: true });
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  }
+  function button(label: string): HTMLButtonElement {
+    const found = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    if (!found) throw new Error(`Missing button: ${label}`);
+    return found;
+  }
+  const png = (name: string) => new File(['image'], name, { type: 'image/png' });
+
+  it('uploads, names, orders and removes shop textures and saves them with the upload setting', async () => {
+    const upload = vi.spyOn(api, 'uploadTextureImage')
+      .mockResolvedValueOnce({ url: '/api/media-files/oak' })
+      .mockResolvedValueOnce({ url: '/api/media-files/marble' })
+      .mockResolvedValueOnce({ url: '/api/media-files/waves' });
+    await renderEditor();
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toMatch(/^data:image\/svg\+xml/);
+    await chooseFiles([png('oak-wood_grain.png'), png('marble.png'), png('waves.png')]);
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(control('Texture 1 name').value).toBe('oak wood grain');
+    expect(control('Texture 2 name').value).toBe('marble');
+    // The newest texture is previewed straight away.
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toBe('/api/media-files/waves');
+    await change('Texture 2 name', 'Carrara marble');
+    await act(async () => button('Move texture Carrara marble earlier').click());
+    await act(async () => button('Remove texture waves').click());
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toMatch(/^data:image\/svg\+xml/);
+    await change('Preview texture', 'none');
+    expect(element('[data-preview="1"]').hasAttribute('data-texture')).toBe(false);
+    await act(async () => control('Let customers upload their own picture').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await click('Save product');
+    expect(updateProduct.mock.calls[0]?.[1].texture).toEqual({
+      enabled: true, price: 0, allowCustom: false,
+      options: [
+        { id: expect.stringMatching(/^texture-/), name: 'Carrara marble', url: '/api/media-files/marble' },
+        { id: expect.stringMatching(/^texture-/), name: 'oak wood grain', url: '/api/media-files/oak' },
+      ],
+    });
+  });
+
+  it('waits for uploads before saving and reports unusable files, failed uploads and missing texture sources', async () => {
+    let finish: ((value: { url: string }) => void) | undefined;
+    const upload = vi.spyOn(api, 'uploadTextureImage').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    await renderEditor();
+    await chooseFiles([png('slow.png')]);
+    const save = Array.from(container.querySelectorAll('button')).find((node) => node.textContent === 'Save product')!;
+    expect(save.disabled).toBe(true);
+    await act(async () => finish?.({ url: '/api/media-files/slow' }));
+    expect(save.disabled).toBe(false);
+    expect(control('Texture 1 name').value).toBe('slow');
+
+    await chooseFiles([new File(['gif'], 'animated.gif', { type: 'image/gif' })]);
+    expect(container.querySelector('[aria-label="Shop textures"] [role="alert"]')?.textContent).toContain('animated.gif: choose a PNG, JPEG or WebP image');
+    upload.mockRejectedValueOnce(new ApiError(413, 'Request body is too large.'));
+    await chooseFiles([png('huge.png')]);
+    expect(container.querySelector('[aria-label="Shop textures"] [role="alert"]')?.textContent).toBe('Request body is too large.');
+    expect(upload).toHaveBeenCalledTimes(2);
+
+    await act(async () => button('Remove texture slow').click());
+    await act(async () => control('Let customers upload their own picture').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await click('Save product');
+    expect(updateProduct).not.toHaveBeenCalled();
+    expect(element('[role="alert"]').textContent).toContain('Offer at least one shop texture or let customers upload their own picture.');
+  });
+
+});
+
+describe('3D lettering editor', () => {
+  function textarea(label: string): HTMLTextAreaElement {
+    const wrapper = Array.from(container.querySelectorAll('label')).find((node) => node.textContent?.startsWith(label));
+    const field = wrapper?.querySelector('textarea');
+    if (!field) throw new Error(`Missing textarea: ${label}`);
+    return field;
+  }
+
+  it('adds lettering per plate with point, direction, size and suggested text, then saves and removes it', async () => {
+    await renderEditor();
+    expect(element('[data-preview="1"]').hasAttribute('data-lettering')).toBe(false);
+    await click('+ Add 3D lettering');
+    // Suggested by the model: front face, half height, ~12% of the height as size.
+    await act(async () => {
+      const field = textarea('Suggested text');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(field, 'Dla Ani');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(element('[data-preview="1"]').getAttribute('data-lettering')).toBe(JSON.stringify({ text: 'Dla Ani', sizeMm: 22 }));
+    await change('X (mm)', '10');
+    await change('Z (mm)', '120');
+    await change('Facing rotation', '90');
+    await change('Tilt', '45');
+    await change('Size (mm)', '15');
+    await change('Line spacing', '1.5');
+    await change('Vertical alignment', 'top');
+    expect(element('[data-preview="1"]').getAttribute('data-lettering')).toBe(JSON.stringify({ text: 'Dla Ani', sizeMm: 15 }));
+    await click('Save product');
+    expect(updateProduct.mock.calls[0]?.[1].mesh?.plates[0].decorationLayout?.extrudedText).toEqual({
+      x: 10, y: -47.9, z: 120, rotationDeg: 90, tiltDeg: 45, sizeMm: 15, depthMm: 1.5, lineSpacing: 1.5,
+      horizontalAlign: 'center', verticalAlign: 'top', defaultText: 'Dla Ani',
+    });
+    expect(updateProduct.mock.calls[0]?.[1].mesh?.plates[1].decorationLayout).toBeUndefined();
+
+    await click('Remove 3D lettering');
+    expect(element('[data-preview="1"]').hasAttribute('data-lettering')).toBe(false);
+    await click('Save product');
+    expect(updateProduct.mock.calls[1]?.[1].mesh?.plates[0].decorationLayout).toBeUndefined();
+  });
+
+  it('keeps invalid lettering from being saved, with a clear message', async () => {
+    await renderEditor();
+    await click('+ Add 3D lettering');
+    await change('Z (mm)', '900');
+    await act(async () => {
+      const field = textarea('Suggested text');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(field, '№');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click('Save product');
+    expect(updateProduct).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Base: 3D lettering: the Z position must be between −500 and 500 mm.');
+    expect(container.textContent).toContain('3D lettering suggested text:');
+  });
+});
+

@@ -380,14 +380,130 @@ export function analyzeMesh(geometry: THREE.BufferGeometry): MeshAnalysis {
 
 /** Faces steeper than this (|normal.y|) count as tops/bottoms and get no engraving or texture. */
 const CAP_NORMAL_Y = 0.75;
+/**
+ * Faces whose normal points this much toward the vertical axis are inner walls (e.g. inside a vase)
+ * and get no engraving or texture, so decorations appear on the outside only, not through the model.
+ */
+const INNER_WALL_NORMAL = -0.2;
 /** Largest dimension of the model in preview world units, matching the built-in shapes. */
 const PREVIEW_SIZE = 2;
+/** Files split into more loose pieces than this are decorated as one object (e.g. broken meshes). */
+const MAX_SEPARATE_PIECES = 500;
+/** Pieces whose footprints overlap by this share of the smaller one belong to the same object. */
+const SAME_OBJECT_OVERLAP = 0.5;
+
+/** One printed object: its own vertical axis and height for wrapping engraving and texture. */
+interface SurfaceObject {
+  centerX: number;
+  centerZ: number;
+  minY: number;
+  height: number;
+  width: number;
+  depth: number;
+}
+
+interface Box {
+  minX: number; maxX: number; minY: number; maxY: number; minZ: number; maxZ: number;
+}
+
+/**
+ * Splits a plate into its objects so each gets its own projection: connected pieces (triangles
+ * sharing vertices), merged when their footprints overlap — stacked or nested shells of one object,
+ * unlike objects standing side by side.
+ */
+function findObjects(pos: Float32Array, triangleCount: number): { objectOf: Uint32Array; objects: SurfaceObject[] } {
+  const parent = Int32Array.from({ length: triangleCount }, (_, i) => i);
+  const find = (i: number) => {
+    while (parent[i] !== i) i = parent[i] = parent[parent[i]];
+    return i;
+  };
+  const owner = new Map<string, number>();
+  for (let t = 0; t < triangleCount; t++) {
+    for (let k = 0; k < 3; k++) {
+      const at = t * 9 + k * 3;
+      const key = `${pos[at]},${pos[at + 1]},${pos[at + 2]}`;
+      const other = owner.get(key);
+      if (other === undefined) owner.set(key, t);
+      else parent[find(t)] = find(other);
+    }
+  }
+
+  const pieceOf = new Uint32Array(triangleCount);
+  const pieceIds = new Map<number, number>();
+  const boxes: Box[] = [];
+  for (let t = 0; t < triangleCount; t++) {
+    const root = find(t);
+    let piece = pieceIds.get(root);
+    if (piece === undefined) {
+      piece = boxes.length;
+      pieceIds.set(root, piece);
+      boxes.push({ minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity, minZ: Infinity, maxZ: -Infinity });
+    }
+    pieceOf[t] = piece;
+    const box = boxes[piece];
+    for (let k = 0; k < 3; k++) {
+      const at = t * 9 + k * 3;
+      box.minX = Math.min(box.minX, pos[at]); box.maxX = Math.max(box.maxX, pos[at]);
+      box.minY = Math.min(box.minY, pos[at + 1]); box.maxY = Math.max(box.maxY, pos[at + 1]);
+      box.minZ = Math.min(box.minZ, pos[at + 2]); box.maxZ = Math.max(box.maxZ, pos[at + 2]);
+    }
+  }
+
+  const group = boxes.map((_, i) => i);
+  const findGroup = (i: number) => {
+    while (group[i] !== i) i = group[i] = group[group[i]];
+    return i;
+  };
+  if (boxes.length > MAX_SEPARATE_PIECES) {
+    group.fill(0);
+  } else {
+    const footprint = (box: Box) => (box.maxX - box.minX + 1e-3) * (box.maxZ - box.minZ + 1e-3);
+    for (let a = 0; a < boxes.length; a++) {
+      for (let b = a + 1; b < boxes.length; b++) {
+        const overlapX = Math.min(boxes[a].maxX, boxes[b].maxX) - Math.max(boxes[a].minX, boxes[b].minX) + 1e-3;
+        const overlapZ = Math.min(boxes[a].maxZ, boxes[b].maxZ) - Math.max(boxes[a].minZ, boxes[b].minZ) + 1e-3;
+        if (overlapX > 0 && overlapZ > 0 && overlapX * overlapZ >= SAME_OBJECT_OVERLAP * Math.min(footprint(boxes[a]), footprint(boxes[b]))) {
+          group[findGroup(b)] = findGroup(a);
+        }
+      }
+    }
+  }
+
+  const objectIds = new Map<number, number>();
+  const objectBoxes: Box[] = [];
+  const objectOfPiece = boxes.map((box, piece) => {
+    const root = findGroup(piece);
+    let object = objectIds.get(root);
+    if (object === undefined) {
+      object = objectBoxes.length;
+      objectIds.set(root, object);
+      objectBoxes.push({ ...box });
+    }
+    const merged = objectBoxes[object];
+    merged.minX = Math.min(merged.minX, box.minX); merged.maxX = Math.max(merged.maxX, box.maxX);
+    merged.minY = Math.min(merged.minY, box.minY); merged.maxY = Math.max(merged.maxY, box.maxY);
+    merged.minZ = Math.min(merged.minZ, box.minZ); merged.maxZ = Math.max(merged.maxZ, box.maxZ);
+    return object;
+  });
+  return {
+    objectOf: pieceOf.map((piece) => objectOfPiece[piece]),
+    objects: objectBoxes.map((box) => ({
+      centerX: (box.minX + box.maxX) / 2,
+      centerZ: (box.minZ + box.maxZ) / 2,
+      minY: box.minY,
+      height: box.maxY - box.minY || 1,
+      width: box.maxX - box.minX,
+      depth: box.maxZ - box.minZ,
+    })),
+  };
+}
 
 /**
  * Turns a parsed STL/3MF into preview geometry: Z-up → Y-up, centered on the ground, scaled
  * to the preview size, with cylindrical UVs so engraving and textures wrap around the
- * sides. Triangles are grouped by color part, and within a part into sides (engraving and
- * texture) and tops/bottoms (plain). The input is not modified.
+ * sides. Every object of a plate is wrapped around its own vertical axis, so each carries the
+ * decoration on its own front. Triangles are grouped by color part, and within a part into
+ * sides (engraving and texture) and tops/bottoms/inner walls (plain). The input is not modified.
  */
 export function prepareMeshForPreview(source: THREE.BufferGeometry): PreparedMesh {
   const g = source.index ? source.toNonIndexed() : source.clone();
@@ -406,12 +522,10 @@ export function prepareMeshForPreview(source: THREE.BufferGeometry): PreparedMes
   g.scale(scale, scale, scale);
   g.computeVertexNormals(); // non-indexed → flat face normals
 
-  const width = size.x * scale;
-  const depth = size.z * scale;
-  const height = size.y * scale || 1;
   const pos = g.getAttribute('position').array as Float32Array;
   const nrm = g.getAttribute('normal').array as Float32Array;
   const triangleCount = pos.length / 9;
+  const { objectOf, objects } = findObjects(pos, triangleCount);
 
   // First pass: bucket each triangle by (part, side/cap) so every bucket can be written
   // contiguously in the second pass and become one geometry group.
@@ -420,7 +534,13 @@ export function prepareMeshForPreview(source: THREE.BufferGeometry): PreparedMes
   const bucketSizes = new Array<number>(bucketCount).fill(0);
   for (let t = 0; t < triangleCount; t++) {
     const part = partAttribute ? partAttribute.getX(t * 3) : 0;
-    const cap = Math.abs(nrm[t * 9 + 1]) > CAP_NORMAL_Y ? 1 : 0;
+    // Inside or outside relative to the triangle's own object, not the middle of the plate.
+    const object = objects[objectOf[t]];
+    const centerX = (pos[t * 9] + pos[t * 9 + 3] + pos[t * 9 + 6]) / 3 - object.centerX;
+    const centerZ = (pos[t * 9 + 2] + pos[t * 9 + 5] + pos[t * 9 + 8]) / 3 - object.centerZ;
+    const radius = Math.hypot(centerX, centerZ);
+    const inner = radius > 1e-6 && (nrm[t * 9] * centerX + nrm[t * 9 + 2] * centerZ) / radius < INNER_WALL_NORMAL;
+    const cap = Math.abs(nrm[t * 9 + 1]) > CAP_NORMAL_Y || inner ? 1 : 0;
     bucketOf[t] = part * 2 + cap;
     bucketSizes[bucketOf[t]]++;
   }
@@ -436,15 +556,16 @@ export function prepareMeshForPreview(source: THREE.BufferGeometry): PreparedMes
     const slot = nextInBucket[bucketOf[t]]++;
     positions.set(pos.subarray(t * 9, t * 9 + 9), slot * 9);
     normals.set(nrm.subarray(t * 9, t * 9 + 9), slot * 9);
+    const object = objects[objectOf[t]];
     for (let k = 0; k < 3; k++) {
-      // u = 0.5 straight ahead (+Z), increasing to the right, so text reads left to right.
-      us[k] = Math.atan2(pos[t * 9 + k * 3], pos[t * 9 + k * 3 + 2]) / (2 * Math.PI) + 0.5;
+      // u = 0.5 straight ahead (+Z) of the object's own axis, increasing to the right, so text reads left to right.
+      us[k] = Math.atan2(pos[t * 9 + k * 3] - object.centerX, pos[t * 9 + k * 3 + 2] - object.centerZ) / (2 * Math.PI) + 0.5;
     }
     // A triangle straddling the seam at the back would otherwise stretch across the whole texture.
     const straddlesSeam = Math.max(us[0], us[1], us[2]) - Math.min(us[0], us[1], us[2]) > 0.5;
     for (let k = 0; k < 3; k++) {
       uvs[slot * 6 + k * 2] = straddlesSeam && us[k] < 0.5 ? us[k] + 1 : us[k];
-      uvs[slot * 6 + k * 2 + 1] = pos[t * 9 + k * 3 + 1] / height;
+      uvs[slot * 6 + k * 2 + 1] = (pos[t * 9 + k * 3 + 1] - object.minY) / object.height;
     }
   }
   g.dispose();
@@ -470,12 +591,20 @@ export function prepareMeshForPreview(source: THREE.BufferGeometry): PreparedMes
       slots,
       slotParts,
       rotationY: 0,
-      // Approximate the wrapped surface as an elliptical cylinder around the model.
-      surfaceAspect: (Math.PI * ((width + depth) / 2)) / height,
+      // Approximate the wrapped surface as an elliptical cylinder around the largest object.
+      surfaceAspect: surfaceAspectOf(objects),
       textWidthFraction: 0.28,
       bottomY: 0,
       // Downloaded models often have inconsistent winding; render both sides so nothing disappears.
       doubleSided: true,
     },
   };
+}
+
+/** Unwrapped width / height of the largest object, which text and picture proportions are fitted to. */
+function surfaceAspectOf(objects: SurfaceObject[]): number {
+  if (objects.length === 0) return 1;
+  const largest = objects.reduce((best, object) =>
+    (object.width + object.depth) * object.height > (best.width + best.depth) * best.height ? object : best);
+  return (Math.PI * ((largest.width + largest.depth) / 2)) / largest.height;
 }

@@ -1,13 +1,12 @@
 import { randomInt, randomUUID } from 'node:crypto';
-import { MongoServerError } from 'mongodb';
 import { CURRENCY } from './domain/config';
 import type { Order, OrderInput, OrderItem, Product } from './domain/types';
 import { normalizeCustomization, normalizeCustomizationText } from './domain/utils/customization';
 import { summarizeConfiguration } from './domain/utils/orderLines';
 import { calculatePrice } from './domain/utils/pricing';
 import { validateDimensions } from './domain/utils/sizing';
-import { customizationEngravingErrors } from './domain/utils/validation';
-import type { Collections } from './db';
+import { customizationEngravingErrors, customizationExtrudedTextErrors, customizationTextureErrors } from './domain/utils/validation';
+import { DuplicateOrderNumberError, type Storage } from './storage';
 import { HttpError } from './http';
 import { t } from './i18n';
 
@@ -26,13 +25,18 @@ export function priceOrderItems(input: OrderInput, productsById: Map<string, Pro
       problems.push(`${label}: ${t('unavailable')}`);
       return [];
     }
+    // Checked before normalization, which would otherwise quietly drop a texture the product no longer offers.
+    const textureErrors = customizationTextureErrors(product, line.customization);
     const normalized = normalizeCustomization(product, line.customization);
     const customization = normalizeCustomizationText(normalized);
     const dimensionError = validateDimensions(customization.dimensions);
-    const engravingErrors = customizationEngravingErrors(product, customization);
+    const engravingErrors = [
+      ...customizationEngravingErrors(product, customization),
+      ...customizationExtrudedTextErrors(product, customization),
+    ];
     if (dimensionError) problems.push(`${label}: ${dimensionError}`);
-    engravingErrors.forEach(({ message }) => problems.push(`${label}: ${message}`));
-    if (dimensionError || engravingErrors.length > 0) return [];
+    [...engravingErrors, ...textureErrors].forEach(({ message }) => problems.push(`${label}: ${message}`));
+    if (dimensionError || engravingErrors.length > 0 || textureErrors.length > 0) return [];
 
     const { lines, unitPrice } = calculatePrice(product, customization);
     return [
@@ -61,9 +65,9 @@ function orderNumber(date: Date): string {
   return `PF-${day}-${suffix}`;
 }
 
-export async function createOrder(db: Collections, input: OrderInput): Promise<Order> {
+export async function createOrder(db: Storage, input: OrderInput): Promise<Order> {
   const productIds = [...new Set(input.items.map((item) => item.productId))];
-  const products = await db.products.find({ id: { $in: productIds } }, { projection: { _id: 0 } }).toArray();
+  const products = await db.products.getMany(productIds);
   const items = priceOrderItems(input, new Map(products.map((p) => [p.id, p])));
 
   const now = new Date();
@@ -85,11 +89,10 @@ export async function createOrder(db: Collections, input: OrderInput): Promise<O
   for (let attempt = 0; ; attempt++) {
     order.number = orderNumber(now);
     try {
-      await db.orders.insertOne({ ...order });
+      await db.orders.insert(order);
       return order;
     } catch (err) {
-      const duplicateNumber = err instanceof MongoServerError && err.code === 11000 && /number/.test(err.message);
-      if (!duplicateNumber || attempt >= 5) throw err;
+      if (!(err instanceof DuplicateOrderNumberError) || attempt >= 5) throw err;
     }
   }
 }

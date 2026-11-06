@@ -2,7 +2,7 @@
 
 | Application | Directory | Development URL |
 |---|---|---|
-| Backend API and MongoDB | [backend](backend/) | http://localhost:3001/api |
+| Backend API (SQLite locally, MongoDB in production) | [backend](backend/) | http://localhost:3001/api |
 | Customer storefront | [frontend-client](frontend-client/) | http://localhost:5173 |
 | Administration | [frontend-admin](frontend-admin/) | http://localhost:5174 |
 
@@ -16,14 +16,32 @@ copies and must be maintained separately when changing the HTTP contract.
 
 ## Start locally
 
-Requires Node 22+, npm and MongoDB. Run each application in a separate terminal.
+Requires Node 22.13+ and npm. No database server is needed: in development the backend
+stores everything, including uploads, in the SQLite file `backend/data/printforge.sqlite`
+(Node's built-in SQLite), seeded with the demo catalog on first start.
+
+Start all three applications with one command from the repository root:
+
+```bash
+node scripts/start-local.mjs
+```
+
+It runs `npm ci` in applications without `node_modules` (`--install` reinstalls all),
+creates missing `.env` files from `.env.example` with a random backend `ADMIN_TOKEN`,
+checks ports 3001/5173/5174, starts the API, waits until it answers, then starts both
+frontends. Output is labelled `[api]`, `[shop]` and `[admin]`; the summary shows the URLs
+and the admin key. Ctrl+C stops everything, and if one application exits the others stop
+too. The script only runs each application's own `npm run dev`; it is not a root npm
+project and adds no dependencies. Delete `backend/data/` to start again with a fresh
+catalog.
+
+To run the applications separately instead, use one terminal per application:
 
 ```bash
 cd backend
 npm ci
 cp .env.example .env
 # Replace ADMIN_TOKEN in .env with a unique secret.
-docker compose up -d
 npm run dev
 ```
 
@@ -46,7 +64,9 @@ The customer application has no administration routes, admin token handling or p
 mutation endpoints. Unpublished product previews live inside the admin application.
 Existing MongoDB data, customer cart and per-product browser drafts keep their previous
 formats. To retain browser drafts, continue hosting the shop at its existing origin.
-The backend's Compose project name retains the original development MongoDB volume.
+To keep developing against MongoDB, set `DATABASE=mongodb` in `backend/.env` and run
+`docker compose up -d` in `backend/`; the Compose project name retains the original
+development MongoDB volume. Local MongoDB data is not copied into SQLite.
 
 ## Build and test independently
 
@@ -63,8 +83,9 @@ local preview (customer port 4173, admin port 4174).
 
 ## Deploy separately
 
-- Deploy the backend as a Node application with MongoDB; it serves `/api` and its own
-  demo assets under `/models`, never an HTML frontend.
+- Deploy the backend as a Node application with MongoDB (`npm start` uses MongoDB unless
+  `DATABASE=sqlite` is set); it serves `/api` and its own demo assets under `/models`,
+  never an HTML frontend.
 - Build each frontend with `VITE_API_URL=https://api.example.com/api` and host its
   `dist/` independently, rewriting non-file routes to that frontend's `index.html`.
 - Set the backend's `CORS_ORIGINS` to the exact storefront and admin origins, separated

@@ -1,20 +1,25 @@
 import { t } from '../../i18n';
 import { useId } from 'react';
-import type { MeshPart, Product, SurfaceCustomization } from '../../types';
+import type { DecorationLayout, MeshPart, Product, SurfaceCustomization } from '../../types';
 import { ColorSelector } from './ColorSelector';
 import { EngravingInput } from './EngravingInput';
-import { TextureUpload } from './TextureUpload';
+import { ExtrudedTextInput } from './ExtrudedTextInput';
+import { TexturePicker } from './TexturePicker';
 
 interface Props {
   product: Product;
   parts: MeshPart[];
   value: SurfaceCustomization;
   error: string | null;
+  /** The shop's placement for this surface, offering 3D lettering when set. */
+  decorationLayout?: DecorationLayout;
+  /** Problem with the 3D lettering text, if any. */
+  extrudedError?: string | null;
   onChange: (patch: Partial<SurfaceCustomization>) => void;
   perSet?: boolean;
 }
 
-export function SurfaceOptions({ product, parts, value, error, onChange, perSet = false }: Props) {
+export function SurfaceOptions({ product, parts, value, error, decorationLayout, extrudedError = null, onChange, perSet = false }: Props) {
   const id = useId();
   const color = product.colors.find((color) => color.id === value.colorId);
   function choosePartColor(key: string, colorId: string | null) {
@@ -71,14 +76,22 @@ export function SurfaceOptions({ product, parts, value, error, onChange, perSet 
           priceScope={perSet ? t("per set") : undefined}
         />
       )}
-      {product.texture.enabled && (
-        <TextureUpload
-          config={product.texture}
-          value={value.textureDataUrl}
-          onChange={(textureDataUrl) => onChange({ textureDataUrl })}
-          priceScope={perSet ? t("per set") : undefined}
+      {decorationLayout?.extrudedText && (
+        <ExtrudedTextInput
+          layout={decorationLayout.extrudedText}
+          text={value.extrudedText}
+          sizeMm={value.extrudedSizeMm}
+          error={extrudedError}
+          onChange={onChange}
         />
       )}
+      <TexturePicker
+        config={product.texture}
+        value={value}
+        onChange={onChange}
+        name={`${id}-texture`}
+        priceScope={perSet ? t("per set") : undefined}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'node:url';
 import { adminAuth } from './auth';
 import { t } from './i18n';
-import type { Collections } from './db';
+import type { Storage } from './storage';
 import { errorHandler, HttpError, notFound } from './http';
 import { modelFilesRouter } from './routes/modelFiles';
 import { ordersRouter } from './routes/orders';
@@ -11,7 +11,7 @@ import { productsRouter } from './routes/products';
 import { mediaFilesRouter } from './routes/mediaFiles';
 
 interface AppOptions {
-  db: Collections;
+  db: Storage;
   adminToken: string;
   allowedOrigins?: string[];
 }

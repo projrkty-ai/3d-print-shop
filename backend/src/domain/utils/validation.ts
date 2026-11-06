@@ -1,10 +1,13 @@
-import { ENGRAVING_ALLOWED, MAX_ENGRAVING_LINES, PRINT_MAX_MM, PRINT_MIN_MM } from '../config';
+import {
+  ENGRAVING_ALLOWED, EXTRUDED_TEXT_ALLOWED, EXTRUDED_TEXT_MAX_LENGTH, EXTRUDED_TEXT_MAX_LINES,
+  MAX_ENGRAVING_LINES, PRINT_MAX_MM, PRINT_MIN_MM,
+} from '../config';
 import type { Customization, EngravingLimits, Product } from '../types';
 import { engravingCharCount, engravingLines } from './engraving';
 import { AXES, AXIS_LABELS } from './sizing';
 import { selectedPlateIds } from './meshPlates';
-import { customizationSurfaces } from './customization';
-import { decorationLayoutErrors } from './decorationLayout';
+import { allowsCustomTexture, customizationSurfaces, extrudedTextChoice, textureOption } from './customization';
+import { decorationLayoutErrors, decorationLayoutFor } from './decorationLayout';
 import { t } from '../../i18n';
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
@@ -19,12 +22,46 @@ export function customizationEngravingErrors(product: Product, customization: Cu
   });
 }
 
+/**
+ * Texture choices the product no longer accepts, e.g. a shop texture the admin removed after the
+ * customer added the item to the cart. Reported instead of silently printing without the texture.
+ * Expects the customization as sent, before `normalizeCustomization` repairs it.
+ */
+/** Problems with the effective 3D lettering of each surface (the customer's text, or the unchanged suggestion). */
+export function customizationExtrudedTextErrors(product: Product, customization: Customization) {
+  return customizationSurfaces(product, customization).flatMap(({ plate, choices }) => {
+    const choice = extrudedTextChoice(decorationLayoutFor(product, plate ?? undefined), choices);
+    const message = choice && validateExtrudedText(choice.text);
+    return message ? [{ plateId: plate?.id ?? null, message: plate ? `${plate.name}: ${message}` : message }] : [];
+  });
+}
+
+export function customizationTextureErrors(product: Product, customization: Customization) {
+  return customizationSurfaces(product, customization).flatMap(({ plate, choices }) => {
+    const message = choices.textureId && !textureOption(product, choices.textureId)
+      ? t('textureUnavailable')
+      : !choices.textureId && choices.textureDataUrl && !allowsCustomTexture(product)
+        ? t('customTextureUnavailable')
+        : null;
+    return message ? [{ plateId: plate?.id ?? null, message: plate ? `${plate.name}: ${message}` : message }] : [];
+  });
+}
+
 /** Returns a list of human-readable problems; empty when the product can be saved. */
 export function validateProduct(product: Product): string[] {
   const errors: string[] = [];
-  errors.push(...decorationLayoutErrors(product.decorationLayout));
+  const layoutErrors = (layout: Product['decorationLayout']) => {
+    const problems = decorationLayoutErrors(layout);
+    const defaultText = layout?.extrudedText?.defaultText;
+    const message = defaultText === undefined
+      ? null
+      : typeof defaultText === 'string' ? validateExtrudedText(defaultText) : t('extrudedCharacters');
+    if (message) problems.push(`${t('extrudedDefault')} ${message}`);
+    return problems;
+  };
+  errors.push(...layoutErrors(product.decorationLayout));
   product.mesh?.plates.forEach((plate) => {
-    errors.push(...decorationLayoutErrors(plate.decorationLayout).map((message) => `${plate.name}: ${message}`));
+    errors.push(...layoutErrors(plate.decorationLayout).map((message) => `${plate.name}: ${message}`));
   });
 
   if (!product.name.trim()) errors.push(t('nameRequired'));
@@ -106,8 +143,28 @@ export function validateProduct(product: Product): string[] {
   if (product.texture.enabled && !isNonNegative(product.texture.price)) {
     errors.push(t('texturePrice'));
   }
+  const textureOptions = product.texture.options ?? [];
+  textureOptions.forEach((option, i) => {
+    if (!option.name.trim()) errors.push(t('textureName', i + 1));
+    if (!option.url.trim()) errors.push(t('textureImage', option.name.trim() || `#${i + 1}`));
+  });
+  if (new Set(textureOptions.map((option) => option.id)).size !== textureOptions.length) {
+    errors.push(t('textureIds'));
+  }
+  if (product.texture.enabled && product.texture.allowCustom === false && textureOptions.length === 0) {
+    errors.push(t('textureSource'));
+  }
 
   return errors;
+}
+
+/** Returns an error message for 3D lettering text, or null if it is acceptable. */
+export function validateExtrudedText(text: string): string | null {
+  const lines = engravingLines(text);
+  if (lines.length > EXTRUDED_TEXT_MAX_LINES) return t('extrudedLines', EXTRUDED_TEXT_MAX_LINES);
+  if (engravingCharCount(lines.join('\n')) > EXTRUDED_TEXT_MAX_LENGTH) return t('extrudedLength', EXTRUDED_TEXT_MAX_LENGTH);
+  if (!lines.every((line) => EXTRUDED_TEXT_ALLOWED.test(line))) return t('extrudedCharacters');
+  return null;
 }
 
 /** Returns an error message for engraving text, or null if it is acceptable. */
