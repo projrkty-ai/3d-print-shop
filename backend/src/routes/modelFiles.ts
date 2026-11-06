@@ -1,9 +1,8 @@
 import express, { Router } from 'express';
 import { t } from '../i18n';
-import { ObjectId } from 'mongodb';
 import { MODEL_MAX_UPLOAD_BYTES } from '../domain/config';
 import type { AdminAuth } from '../auth';
-import { MODEL_FILE_URL_PREFIX, type Collections } from '../db';
+import { MODEL_FILE_URL_PREFIX, type Storage } from '../storage';
 import { HttpError, notFound } from '../http';
 
 /** 3MF is a ZIP archive; STL is either "solid …" text or a binary file with an 84-byte header. */
@@ -23,7 +22,7 @@ function decodeFileName(header: string | undefined): string {
   return name.replace(/[^\p{L}\p{N}._\- ]+/gu, '_').slice(0, 255) || 'model';
 }
 
-export function modelFilesRouter(db: Collections, { requireAdmin }: AdminAuth) {
+export function modelFilesRouter(db: Storage, { requireAdmin }: AdminAuth) {
   const router = Router();
 
   /**
@@ -42,21 +41,14 @@ export function modelFilesRouter(db: Collections, { requireAdmin }: AdminAuth) {
       if (!looksLikeModelFile(data)) throw new HttpError(400, t('invalidModel'));
       const fileName = decodeFileName(req.get('x-file-name'));
 
-      const upload = db.modelFiles.openUploadStream(fileName, { metadata: { uploadedAt: new Date() } });
-      await new Promise<void>((resolve, reject) => {
-        upload.once('finish', () => resolve());
-        upload.once('error', reject);
-        upload.end(data);
-      });
-      const url = `${MODEL_FILE_URL_PREFIX}${upload.id.toHexString()}`;
+      const id = await db.modelFiles.upload(fileName, data, { uploadedAt: new Date().toISOString() });
+      const url = `${MODEL_FILE_URL_PREFIX}${id}`;
       res.status(201).location(url).json({ url, fileName, sizeBytes: data.length });
     },
   );
 
   router.get('/:id', async (req, res) => {
-    if (!ObjectId.isValid(req.params.id)) throw notFound('Model file');
-    const id = new ObjectId(req.params.id);
-    const [file] = await db.modelFiles.find({ _id: id }).toArray();
+    const file = await db.modelFiles.find(String(req.params.id));
     if (!file) throw notFound('Model file');
     res.set({
       'Content-Type': 'application/octet-stream',
@@ -64,7 +56,7 @@ export function modelFilesRouter(db: Collections, { requireAdmin }: AdminAuth) {
       // A file's contents never change: replacing a model uploads a new file with a new id.
       'Cache-Control': 'public, max-age=31536000, immutable',
     });
-    db.modelFiles.openDownloadStream(id).on('error', (err) => res.destroy(err)).pipe(res);
+    db.modelFiles.openDownloadStream(file.id).on('error', (err) => res.destroy(err)).pipe(res);
   });
 
   return router;

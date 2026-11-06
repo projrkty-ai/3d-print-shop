@@ -1,35 +1,29 @@
-import { MongoClient } from 'mongodb';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createSeedProducts } from './domain/data/seedProducts';
 import type { Customization, Order, OrderInput, Product } from './domain/types';
 import { createApp } from './app';
-import { ensureIndexes, migrateDocuments, openDatabase, seedProducts, type Collections } from './db';
+import { seedProducts, type Storage } from './storage';
+import { deleteAllOrders, openTestStorage } from './storage/testStorage';
 
 const TOKEN = 'test-admin-token';
 const admin = { Authorization: `Bearer ${TOKEN}` };
 
-let mongo: MongoMemoryServer;
-let client: MongoClient;
-let db: Collections;
+let db: Storage;
+let stop: (() => Promise<void>) | undefined;
 let app: ReturnType<typeof createApp>;
 
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create();
-  client = await MongoClient.connect(mongo.getUri());
-  db = openDatabase(client.db('test'));
-  await ensureIndexes(db);
+  ({ storage: db, stop } = await openTestStorage('test'));
   app = createApp({ db, adminToken: TOKEN });
 }, 120_000);
 
 afterAll(async () => {
-  await client?.close();
-  await mongo?.stop();
+  await stop?.();
 });
 
 beforeEach(async () => {
-  await db.orders.deleteMany({});
+  await deleteAllOrders(db);
   await seedProducts(db, { reset: true });
 });
 
@@ -216,8 +210,10 @@ describe('products', () => {
   });
 
   it('upgrades stored products that predate plate support', async () => {
-    await db.products.updateOne({ id: 'twisted-star-vase' }, { $unset: { 'mesh.plates': '', 'mesh.plate': '' } });
-    await migrateDocuments(db);
+    const stored = (await db.products.get('twisted-star-vase'))!;
+    const { plates: _plates, plate: _plate, ...legacyMesh } = stored.mesh!;
+    await db.products.replace({ ...stored, mesh: legacyMesh as NonNullable<Product['mesh']> });
+    await db.prepare();
     const { body } = await request(app).get('/api/products/twisted-star-vase').expect(200);
     expect(body.mesh).toMatchObject({ plates: [], plate: null });
     expect((await request(app).get('/api/products/spiral-vase').expect(200)).body.mesh).toBeNull();
@@ -379,6 +375,94 @@ describe('orders', () => {
     }])).expect(400);
   });
 
+  it('offers shop textures, snapshots the chosen one and rejects textures that are no longer offered', async () => {
+    const body = productBody();
+    const marble = { id: 'marble', name: 'Marble', url: '/api/media-files/0123456789abcdef01234567' };
+    await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...body, texture: { enabled: true, price: 7, options: [marble], allowCustom: false },
+    }).expect(200);
+    const saved = (await request(app).get('/api/products/spiral-vase').expect(200)).body as Product;
+    expect(saved.texture).toEqual({ enabled: true, price: 7, options: [marble], allowCustom: false });
+
+    const { body: order } = await request(app).post('/api/orders').send(checkout([{
+      productId: 'spiral-vase', customization: spiralVase({ textureId: 'marble' }), quantity: 1,
+    }])).expect(201);
+    expect(order.total).toBe(32 + 7);
+    expect(order.items[0].customization).toMatchObject({ textureId: 'marble', textureDataUrl: null });
+    expect(order.items[0].texture).toEqual({ source: 'library', ...marble });
+    expect(order.items[0].priceLines.at(-1)).toEqual({ label: 'Picture texture', amount: 7, note: 'Marble' });
+
+    // The order keeps its snapshot when the shop later renames or removes the texture.
+    await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...body, texture: { enabled: true, price: 7, options: [{ ...marble, id: 'marble-2', name: 'Renamed' }] },
+    }).expect(200);
+    const stored = (await request(app).get(`/api/orders/${order.id}`).set(admin).expect(200)).body as Order;
+    expect(stored.items[0].texture).toEqual({ source: 'library', ...marble });
+
+    await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...body, texture: { enabled: true, price: 7, options: [marble], allowCustom: false },
+    }).expect(200);
+    const stale = await request(app).post('/api/orders').send(checkout([
+      { productId: 'spiral-vase', customization: spiralVase({ textureId: 'removed' }), quantity: 1 },
+      { productId: 'spiral-vase', customization: spiralVase({ textureDataUrl: 'data:image/png;base64,AA==' }), quantity: 1 },
+    ])).expect(400);
+    expect(stale.body.details).toEqual([
+      expect.stringMatching(/^Item 1 \(Spiral Vase\): the chosen texture is no longer available/),
+      expect.stringMatching(/^Item 2 \(Spiral Vase\): your own texture pictures are no longer accepted/),
+    ]);
+  });
+
+  it('rejects texture libraries with external images or no texture source at all', async () => {
+    const body = productBody();
+    const option = { id: 'marble', name: 'Marble', url: '/api/media-files/0123456789abcdef01234567' };
+    for (const url of ['https://images.example/marble.png', '//images.example/marble.png', 'javascript:alert(1)', '']) {
+      await request(app).put('/api/products/spiral-vase').set(admin).send({
+        ...body, texture: { enabled: true, price: 7, options: [{ ...option, url }] },
+      }).expect(400);
+    }
+    const noSource = await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...body, texture: { enabled: true, price: 7, options: [], allowCustom: false },
+    }).expect(400);
+    expect(noSource.body.details).toEqual(['Offer at least one shop texture or let customers upload their own picture.']);
+    const duplicate = await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...body, texture: { enabled: true, price: 7, options: [option, { ...option, name: 'Copy' }] },
+    }).expect(400);
+    expect(duplicate.body.details).toEqual(['Each shop texture needs a unique id.']);
+  });
+
+  it('stores 3D lettering placement and snapshots it with the customer text and clamped size', async () => {
+    const body = productBody();
+    const extrudedText = {
+      x: 0, y: -55, z: 100, rotationDeg: 15, tiltDeg: 0, sizeMm: 12, depthMm: 1.5, lineSpacing: 1.2,
+      horizontalAlign: 'center', verticalAlign: 'middle', defaultText: 'Hello',
+    };
+    await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...body, decorationLayout: { extrudedText },
+    }).expect(200);
+
+    const { body: order } = await request(app).post('/api/orders').send(checkout([
+      { productId: 'spiral-vase', customization: spiralVase({ extrudedText: 'Dla Ani  \n\n', extrudedSizeMm: 99 }), quantity: 1 },
+      { productId: 'spiral-vase', customization: spiralVase(), quantity: 1 },
+    ])).expect(201);
+    // The shop placement travels with the order; the text is normalized and the size clamped.
+    expect(order.items[0].decorationLayout?.extrudedText).toEqual(extrudedText);
+    expect(order.items[0].customization).toMatchObject({ extrudedText: 'Dla Ani', extrudedSizeMm: 24 });
+    expect(order.items[1].customization).not.toHaveProperty('extrudedText');
+
+    const invalid = await request(app).post('/api/orders').send(checkout([
+      { productId: 'spiral-vase', customization: spiralVase({ extrudedText: '日本' }), quantity: 1 },
+    ])).expect(400);
+    expect(invalid.body.details).toEqual([expect.stringMatching(/Item 1 .*Latin letters/)]);
+
+    const badLayout = await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...body, decorationLayout: { extrudedText: { ...extrudedText, tiltDeg: 180, defaultText: '№' } },
+    }).expect(400);
+    expect(badLayout.body.details).toEqual([
+      '3D lettering: tilt must be between 0 and 90 degrees.',
+      expect.stringContaining('3D lettering suggested text:'),
+    ]);
+  });
+
   it('prices orders on the server, ignoring any prices sent by the client', async () => {
     const order = checkout([
       {
@@ -415,9 +499,9 @@ describe('orders', () => {
       .send(checkout([{ productId: 'tricolor-star-vase', customization, quantity: 1 }]))
       .expect(201);
     expect(body.items[0].parts).toEqual([
-      { name: 'Base', colorName: 'Original', colorHex: '#2b2b2e' },
-      { name: 'Body', colorName: 'Silk Gold', colorHex: '#c9a227' },
-      { name: 'Rim', colorName: 'Original', colorHex: '#c9a227' },
+      { key: 'material:Base:#2b2b2e', name: 'Base', colorName: 'Original', colorHex: '#2b2b2e' },
+      { key: 'material:Body:#1f8a8a', name: 'Body', colorName: 'Silk Gold', colorHex: '#c9a227' },
+      { key: 'material:Rim:#c9a227', name: 'Rim', colorName: 'Original', colorHex: '#c9a227' },
     ]);
   });
 
@@ -438,7 +522,7 @@ describe('orders', () => {
       'Item 2 (Moon Lamp Shade): this product is no longer available.',
       expect.stringMatching(/^Item 3 \(Spiral Vase\): Use letters/),
     ]);
-    expect(await db.orders.countDocuments()).toBe(0);
+    expect(await db.orders.list({ limit: 10 })).toEqual([]);
   });
 
   it('validates the customer details', async () => {

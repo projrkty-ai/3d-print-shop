@@ -1,12 +1,12 @@
-import { t } from '../../i18n';
+import { formatNumber, t } from '../../i18n';
 import { useEffect, useState, type InputHTMLAttributes, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { LazyProductPreview as ProductPreview } from '../../components/LazyProductPreview';
-import { ENGRAVING_FONTS, fontStack, MAX_ENGRAVING_LINES, PRINT_MAX_MM, PRINT_MIN_MM } from '../../config';
+import { ENGRAVING_FONTS, EXTRUDED_DEPTH_MM, EXTRUDED_LINE_SPACING, EXTRUDED_SIZE_MM, fontStack, MAX_ENGRAVING_LINES, PRINT_MAX_MM, PRINT_MIN_MM } from '../../config';
 import { api, ApiError, toProductBody } from '../../api/client';
 import { resolveAssetUrl } from '../../api/urls';
 import { useProducts } from '../../store/ProductsContext';
-import type { ColorOption, DecorationLayout, MeshFormat, ModelSpec, PreviewShape, Product } from '../../types';
+import type { ColorOption, DecorationLayout, ExtrudedTextLayout, MeshFormat, ModelSpec, PreviewShape, Product, TextureConfig } from '../../types';
 import { engravingLines } from '../../utils/engraving';
 import { createId } from '../../utils/ids';
 import { fileToResizedDataUrl, ImageUploadError } from '../../utils/image';
@@ -26,8 +26,9 @@ import { LoadState } from '../../components/LoadState';
 import { NotFoundPage } from '../NotFoundPage';
 import { ModelFileCard } from './ModelFileCard';
 import { includedProductPlates, plateParts, selectedPlateIds } from '../../utils/meshPlates';
-import { decorationLayoutFor } from '../../utils/decorationLayout';
+import { decorationLayoutFor, defaultExtrudedTextLayout } from '../../utils/decorationLayout';
 import { DecorationLayoutEditor } from './DecorationLayoutEditor';
+import { TextureLibraryEditor } from './TextureLibraryEditor';
 import { LazyDescriptionEditor as DescriptionEditor } from '../../components/LazyDescriptionEditor';
 
 const SAMPLE_TEXTURE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="white"/><path d="M0 0h128v128H0zM128 128h128v128H128z" fill="#555"/><circle cx="128" cy="128" r="70" fill="none" stroke="black" stroke-width="12"/></svg>')}`;
@@ -148,11 +149,14 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
   const [previewColorId, setPreviewColorId] = useState(initial.colors[0]?.id ?? '');
   const [previewText, setPreviewText] = useState(t("Sample"));
   const [layoutPlateId, setLayoutPlateId] = useState<number | null>(() => includedProductPlates(initial)[0]?.id ?? null);
-  const [showSampleTexture, setShowSampleTexture] = useState(true);
+  /** Texture shown in the live preview: the checker sample, none, or a shop texture id. */
+  const [previewTexture, setPreviewTexture] = useState('sample');
   // A newly picked model file is only written to storage on save, so cancelling leaves nothing behind.
   const [pendingModelFile, setPendingModelFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [descriptionBusy, setDescriptionBusy] = useState(false);
+  // Texture images upload immediately; saving waits so the product never misses a finished upload.
+  const [textureBusy, setTextureBusy] = useState(false);
 
   // The unsaved model is previewed from an object URL; release it when replaced or on leaving.
   const blobUrl = draft.mesh?.url.startsWith('blob:') ? draft.mesh.url : null;
@@ -161,6 +165,9 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
   }, [blobUrl]);
 
   const set = <K extends keyof Product>(key: K, value: Product[K]) => setDraft((d) => ({ ...d, [key]: value }));
+  /** Functional, because texture uploads finish asynchronously while the admin keeps editing. */
+  const updateTexture = (update: (texture: TextureConfig) => TextureConfig) =>
+    setDraft((d) => ({ ...d, texture: update(d.texture) }));
 
   const updateModel = (patch: Partial<ModelSpec>) => setDraft((d) => ({ ...d, model: { ...d.model, ...patch } }));
   const updateColor = (id: string, patch: Partial<ColorOption>) =>
@@ -245,7 +252,7 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
   }
 
   async function handleSave(exitAfterSave = false) {
-    if (saving || descriptionBusy) return;
+    if (saving || descriptionBusy || textureBusy) return;
     const problems = validateProduct(draft);
     setErrors(problems);
     if (problems.length > 0) {
@@ -303,6 +310,16 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
       },
     } : { ...current, decorationLayout });
   }
+  const lettering = layout?.extrudedText;
+  const letteringModel = layoutPlate?.model ?? draft.model;
+  function updateLettering(patch: Partial<ExtrudedTextLayout> | null) {
+    if (patch === null) {
+      const { extrudedText: _removed, ...rest } = layout ?? {};
+      updateLayout(Object.keys(rest).length ? rest : undefined);
+    } else {
+      updateLayout({ ...layout, extrudedText: { ...(lettering ?? defaultExtrudedTextLayout(letteringModel)), ...patch } });
+    }
+  }
   function renderPlateSelector(label: string) {
     return includedPlates.length > 0 && (
       <Field label={label}>
@@ -312,6 +329,9 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
       </Field>
     );
   }
+  const previewTextureOption = draft.texture.options?.find((option) => option.id === previewTexture);
+  const previewTextureUrl = !draft.texture.enabled || previewTexture === 'none' ? null
+    : previewTextureOption ? resolveAssetUrl(previewTextureOption.url) : SAMPLE_TEXTURE;
   // Show only as many lines as customers will be allowed to enter.
   const previewEngraving = engravingLines(previewText)
     .slice(0, Math.max(1, draft.engraving.maxLines || 1))
@@ -329,10 +349,10 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
             <button type="button" className="btn btn--ghost btn--danger" disabled={saving} onClick={() => void handleDelete()}>{t("Delete")}</button>
           )}
           <Link to="/admin" className="btn btn--ghost">{t("Cancel")}</Link>
-          <button type="button" className="btn btn--primary" onClick={() => void handleSave()} disabled={saving || descriptionBusy}>
+          <button type="button" className="btn btn--primary" onClick={() => void handleSave()} disabled={saving || descriptionBusy || textureBusy}>
             {saving ? t("Saving…") : t("Save product")}
           </button>
-          <button type="button" className="btn btn--ghost" onClick={() => void handleSave(true)} disabled={saving || descriptionBusy}>{t("Save and exit")}</button>
+          <button type="button" className="btn btn--ghost" onClick={() => void handleSave(true)} disabled={saving || descriptionBusy || textureBusy}>{t("Save and exit")}</button>
         </div>
       </div>
 
@@ -656,14 +676,42 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
             </div>
             {draft.texture.enabled ? (
               <>
-                <Field label={t("Price")} hint={t("Customers upload an image that is embossed into the surface.")}>
+                <Field label={t("Price")} hint={t("Charged once per set for a shop texture or the customer's own picture, embossed into the surface.")}>
                   <NumberInput
                     min={0}
                     step={0.5}
                     value={draft.texture.price}
-                    onChange={(price) => set('texture', { ...draft.texture, price })}
+                    onChange={(price) => updateTexture((texture) => ({ ...texture, price }))}
                   />
                 </Field>
+                <label className="checkbox">
+                  <input
+                    type="checkbox"
+                    checked={draft.texture.allowCustom !== false}
+                    onChange={(e) => updateTexture((texture) => ({ ...texture, allowCustom: e.target.checked }))}
+                  />{t("Let customers upload their own picture")}</label>
+                <TextureLibraryEditor
+                  options={draft.texture.options ?? []}
+                  onAdd={(option) => {
+                    updateTexture((texture) => ({ ...texture, options: [...(texture.options ?? []), option] }));
+                    setPreviewTexture(option.id);
+                  }}
+                  onChange={(id, patch) => updateTexture((texture) => ({
+                    ...texture, options: texture.options?.map((option) => option.id === id ? { ...option, ...patch } : option),
+                  }))}
+                  onRemove={(id) => updateTexture((texture) => ({
+                    ...texture, options: texture.options?.filter((option) => option.id !== id),
+                  }))}
+                  onMove={(id, direction) => updateTexture((texture) => {
+                    const options = [...(texture.options ?? [])];
+                    const from = options.findIndex((option) => option.id === id);
+                    const to = from + direction;
+                    if (from < 0 || to < 0 || to >= options.length) return texture;
+                    [options[from], options[to]] = [options[to], options[from]];
+                    return { ...texture, options };
+                  })}
+                  onBusyChange={setTextureBusy}
+                />
                 {renderPlateSelector(t("Texture plate"))}
                 <DecorationLayoutEditor
                   value={layout}
@@ -673,7 +721,79 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
                 />
               </>
             ) : (
-              <p className="muted">{t("Customers can't upload a picture texture for this product.")}</p>
+              <p className="muted">{t("Customers can't add a picture texture to this product.")}</p>
+            )}
+          </section>
+
+          <section className="card" aria-label={t("3D lettering settings")}>
+            <div className="card__header">
+              <h2>{t("3D lettering")}</h2>
+            </div>
+            <p className="muted card__intro">{t("Raised 3D text printed at a fixed point on the model, in the model's color. Customers can change the suggested text and scale its size between 50% and 200%. No extra charge.")}</p>
+            {renderPlateSelector(t("Lettering plate"))}
+            {lettering ? (
+              <>
+                <Field label={t("Suggested text")} hint={t("Shown and printed unless the customer changes it. Latin letters, digits and basic punctuation; up to 3 lines.")}>
+                  <textarea
+                    rows={2}
+                    value={lettering.defaultText}
+                    maxLength={200}
+                    onChange={(e) => updateLettering({ defaultText: e.target.value })}
+                  />
+                </Field>
+                <p className="muted">{t("Position in millimeters at the model's original size, from the center of its footprint: X + is right, Y + is toward the back (the front face is at −depth/2), Z + is up.")}</p>
+                <div className="form-grid form-grid--4">
+                  <Field label={t("X (mm)")}>
+                    <NumberInput step={0.5} value={lettering.x} onChange={(x) => updateLettering({ x })} />
+                  </Field>
+                  <Field label={t("Y (mm)")}>
+                    <NumberInput step={0.5} value={lettering.y} onChange={(y) => updateLettering({ y })} />
+                  </Field>
+                  <Field label={t("Z (mm)")}>
+                    <NumberInput step={0.5} value={lettering.z} onChange={(z) => updateLettering({ z })} />
+                  </Field>
+                  <Field label={t("Raise depth (mm)")} hint={t("How far the letters stand out.")}>
+                    <NumberInput min={EXTRUDED_DEPTH_MM.min} max={EXTRUDED_DEPTH_MM.max} step={0.1} value={lettering.depthMm} onChange={(depthMm) => updateLettering({ depthMm })} />
+                  </Field>
+                </div>
+                <div className="form-grid">
+                  <Field label={`${t("Facing rotation")}: ${formatNumber(lettering.rotationDeg)}°`} hint={t("Direction the text faces and is raised toward: 0° the front, 90° the right, ±180° the back.")}>
+                    <input type="range" min={-180} max={180} step={5} value={lettering.rotationDeg} aria-label={t("Facing rotation in degrees")}
+                      onChange={(e) => updateLettering({ rotationDeg: e.target.valueAsNumber })} />
+                  </Field>
+                  <Field label={`${t("Tilt")}: ${formatNumber(lettering.tiltDeg)}°`} hint={t("0° stands upright on a side; 90° lies flat, raised upward (e.g. on a lid).")}>
+                    <input type="range" min={0} max={90} step={5} value={lettering.tiltDeg} aria-label={t("Tilt in degrees")}
+                      onChange={(e) => updateLettering({ tiltDeg: e.target.valueAsNumber })} />
+                  </Field>
+                </div>
+                <div className="form-grid form-grid--4">
+                  <Field label={t("Size (mm)")}>
+                    <NumberInput min={EXTRUDED_SIZE_MM.min} max={EXTRUDED_SIZE_MM.max} step={0.5} value={lettering.sizeMm} onChange={(sizeMm) => updateLettering({ sizeMm })} />
+                  </Field>
+                  <Field label={t("Line spacing")} hint={t("As a multiple of the size.")}>
+                    <NumberInput min={EXTRUDED_LINE_SPACING.min} max={EXTRUDED_LINE_SPACING.max} step={0.1} value={lettering.lineSpacing} onChange={(lineSpacing) => updateLettering({ lineSpacing })} />
+                  </Field>
+                  <Field label={t("Horizontal alignment")}>
+                    <select value={lettering.horizontalAlign} onChange={(e) => {
+                      const horizontalAlign = e.target.value;
+                      if (horizontalAlign === 'left' || horizontalAlign === 'center' || horizontalAlign === 'right') updateLettering({ horizontalAlign });
+                    }}>
+                      <option value="left">{t("Left")}</option><option value="center">{t("Center")}</option><option value="right">{t("Right")}</option>
+                    </select>
+                  </Field>
+                  <Field label={t("Vertical alignment")}>
+                    <select value={lettering.verticalAlign} onChange={(e) => {
+                      const verticalAlign = e.target.value;
+                      if (verticalAlign === 'top' || verticalAlign === 'middle' || verticalAlign === 'bottom') updateLettering({ verticalAlign });
+                    }}>
+                      <option value="top">{t("Top")}</option><option value="middle">{t("Middle")}</option><option value="bottom">{t("Bottom")}</option>
+                    </select>
+                  </Field>
+                </div>
+                <button type="button" className="btn btn--small btn--ghost btn--danger" onClick={() => updateLettering(null)}>{t("Remove 3D lettering")}</button>
+              </>
+            ) : (
+              <button type="button" className="btn btn--small" onClick={() => updateLettering({ defaultText: t("Hello") })}>{t("+ Add 3D lettering")}</button>
             )}
           </section>
         </div>
@@ -694,8 +814,11 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
                   caption={pricingReady ? t("Original size: {0}", formatDimensions(layoutPlate?.model ?? draft.model)) : undefined}
                   engravingText={draft.engraving.enabled ? previewEngraving : ''}
                   engravingFont={draft.engraving.fonts[0] ?? 'Arial'}
-                  textureDataUrl={draft.texture.enabled && showSampleTexture ? SAMPLE_TEXTURE : null}
+                  textureUrl={previewTextureUrl}
                   decorationLayout={layout}
+                  extrudedText={lettering?.defaultText.trim()
+                    ? { layout: lettering, text: lettering.defaultText, sizeMm: lettering.sizeMm, modelMm: letteringModel }
+                    : null}
                   meshUrl={draft.mesh?.url}
                   meshPlate={layoutPlate?.id ?? draft.mesh?.plate}
                   className="preview--compact"
@@ -729,10 +852,18 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
                     ) : (
                       <input value={previewText} onChange={(e) => setPreviewText(e.target.value)} />
                     )}
-                    {draft.texture.enabled && (
-                      <label className="checkbox">
-                        <input type="checkbox" checked={showSampleTexture} onChange={(event) => setShowSampleTexture(event.target.checked)} />{t("Show sample texture")}</label>
-                    )}
+                  </Field>
+                )}
+                {draft.texture.enabled && (
+                  <Field label={t("Preview texture")}>
+                    <select value={previewTextureOption?.id ?? (previewTexture === 'none' ? 'none' : 'sample')}
+                      onChange={(event) => setPreviewTexture(event.target.value)}>
+                      <option value="sample">{t("Checker sample")}</option>
+                      {(draft.texture.options ?? []).map((option, index) => (
+                        <option key={option.id} value={option.id}>{option.name.trim() || t("Texture {0}", index + 1)}</option>
+                      ))}
+                      <option value="none">{t("No texture")}</option>
+                    </select>
                   </Field>
                 )}
               </>

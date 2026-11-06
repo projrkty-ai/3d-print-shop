@@ -1,23 +1,18 @@
-import { MongoClient } from 'mongodb';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { openDatabase, type Collections } from './db';
+import type { Storage } from './storage';
+import { openTestStorage } from './storage/testStorage';
 import type { OrderInput } from './domain/types';
 
-let mongo: MongoMemoryServer;
-let client: MongoClient;
-let db: Collections;
+let db: Storage;
+let stop: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create();
-  client = await MongoClient.connect(mongo.getUri());
-  db = openDatabase(client.db('localization'));
+  ({ storage: db, stop } = await openTestStorage('localization'));
 }, 120_000);
 
 afterAll(async () => {
-  await client?.close();
-  await mongo?.stop();
+  await stop?.();
 });
 
 afterEach(() => {
@@ -112,7 +107,7 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
       items: [{ productId: product.id, customization, quantity: 1 }],
       customerNote: 'Original customer content',
     };
-    await db.products.replaceOne({ id: product.id }, product, { upsert: true });
+    if (!(await db.products.replace(product))) await db.products.insert(product);
     const app = createApp({ db, adminToken: 'localization-test' });
     const { body } = await request(app).post('/api/orders').send(input).expect(201);
     expect(body.currency).toBe('USD');
@@ -125,7 +120,7 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
     expect(body.items[0].priceLines[0].note).toContain(expected.fixedFee);
     expect(body.items[0].priceLines[1]).toEqual({ label: `${expected.color}Original Color`, amount: 3 });
     expect(body.total).toBe(35);
-    const stored = await db.orders.findOne({ id: body.id });
+    const stored = await db.orders.get(body.id);
     expect(stored?.items[0].priceLines).toEqual(body.items[0].priceLines);
     vi.stubEnv('APP_LANGUAGE', language === 'pl' ? 'en' : 'pl');
     vi.resetModules();
@@ -142,7 +137,7 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
     };
     const summary = summarizeConfiguration(product, defaultCustomization(product));
     expect(summary.colorName).toBe(expected.multiColor);
-    expect(summary.parts?.[0]).toEqual({ name: 'Original Part', colorName: expected.original, colorHex: '#ffffff' });
+    expect(summary.parts?.[0]).toEqual({ key: 'body', name: 'Original Part', colorName: expected.original, colorHex: '#ffffff' });
     try {
       priceOrderItems(input, new Map());
       expect.fail('Missing product must fail checkout');

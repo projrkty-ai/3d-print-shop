@@ -2,10 +2,12 @@ import { t } from '../../i18n';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { api, ApiError } from '../../api/client';
-import { ConfigurationDetails, ItemSwatch } from '../../components/ConfiguredItem';
+import { ConfigurationDetails, ItemThumbnail } from '../../components/ConfiguredItem';
 import { LoadState } from '../../components/LoadState';
+import { useProducts } from '../../store/ProductsContext';
 import { ORDER_STATUSES, type Order, type OrderStatus } from '../../types';
 import { formatPrice } from '../../utils/pricing';
+import { OrderedTextures, OrderItemViewer } from './OrderItemViewer';
 import { formatDateTime, OrderStatusBadge, STATUS_LABELS } from './orderDisplay';
 import { useAdminData } from './useAdminData';
 
@@ -31,6 +33,10 @@ function OrderDetails({ order, onSaved }: { order: Order; onSaved: (order: Order
   const [adminNote, setAdminNote] = useState(order.adminNote);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const { getProduct } = useProducts();
+  /** Index of the item shown in the 3D viewer. */
+  const [viewing, setViewing] = useState<number | null>(null);
+  const viewed = viewing === null ? undefined : order.items[viewing];
   const dirty = status !== order.status || adminNote !== order.adminNote;
   const { customer } = order;
 
@@ -81,33 +87,29 @@ function OrderDetails({ order, onSaved }: { order: Order; onSaved: (order: Order
         </p>
       )}
 
+      {viewed && viewing !== null && (
+        <OrderItemViewer
+          item={viewed}
+          product={getProduct(viewed.productId)}
+          orderNumber={order.number}
+          position={viewing + 1}
+          onClose={() => setViewing(null)}
+        />
+      )}
+
       <div className="order-detail__layout">
         <section className="card">
           <h2>{t("Items")}</h2>
           <ul className="order-items">
             {order.items.map((item, i) => (
               <li key={i} className="order-item">
-                <ItemSwatch item={item} />
+                <ItemThumbnail item={item} product={getProduct(item.productId)} onOpen={() => setViewing(i)} />
                 <div className="order-item__info">
                   <Link to={`/product/${item.productId}`} className="cart-item__name">
                     {item.productName}
                   </Link>
                   <ConfigurationDetails item={item} />
-                  {!item.customization.plates && item.customization.textureDataUrl && (
-                    <figure className="order-item__texture">
-                      <img src={item.customization.textureDataUrl} alt={t("Texture uploaded for {0}", item.productName)} />
-                      <figcaption className="muted">{t("Customer's texture picture")}</figcaption>
-                    </figure>
-                  )}
-                  {item.plates?.map((plate) => {
-                    const texture = item.customization.plates?.[plate.id]?.textureDataUrl;
-                    return texture ? (
-                      <figure key={plate.id} className="order-item__texture">
-                        <img src={texture} alt={t("Texture uploaded for {0}, {1}", item.productName, plate.name)} />
-                        <figcaption className="muted">{plate.name} {t("— customer's texture picture")}</figcaption>
-                      </figure>
-                    ) : null;
-                  })}
+                  <OrderedTextures item={item} fileName={`${order.number}-${i + 1}`} />
                   <details className="order-item__prices">
                     <summary>{t("Price breakdown")}</summary>
                     <table className="summary__lines">

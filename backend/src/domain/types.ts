@@ -26,10 +26,37 @@ export interface TextureLayout extends SurfacePoint {
   height: number;
 }
 
+/**
+ * Raised 3D lettering the shop places at a point on the printed model. Customers may change
+ * the text and its size; everything else is owned by the shop and snapshotted into orders.
+ */
+export interface ExtrudedTextLayout {
+  /** Anchor in millimeters from the center of the model's footprint: X right, Y toward the back, Z up. */
+  x: number;
+  y: number;
+  z: number;
+  /** Which way the lettering faces and is raised: degrees around the vertical axis; 0 faces the front, 90 the right. */
+  rotationDeg: number;
+  /** Tilt from upright toward facing straight up, in degrees (90 lies flat, e.g. on a lid). */
+  tiltDeg: number;
+  /** Font size in millimeters at the model's original size; the customer may scale it. */
+  sizeMm: number;
+  /** How far the letters are raised, in millimeters. */
+  depthMm: number;
+  /** Distance between lines as a multiple of the size. */
+  lineSpacing: number;
+  horizontalAlign: 'left' | 'center' | 'right';
+  verticalAlign: 'top' | 'middle' | 'bottom';
+  /** Suggested text, shown and printed unless the customer changes it. */
+  defaultText: string;
+}
+
 export interface DecorationLayout {
   text?: TextLayout;
-  /** Omitted preserves the legacy, repeating texture; defined places one image at this size. */
+  /** Omitted places one undistorted picture on the front (see DEFAULT_TEXTURE_LAYOUT); defined stretches it to this box. */
   texture?: TextureLayout;
+  /** Raised 3D lettering at a fixed point; omitted offers none. */
+  extrudedText?: ExtrudedTextLayout;
 }
 
 /** A differently colored part of a multi-color model file (one per color in the file). */
@@ -103,9 +130,22 @@ export interface EngravingConfig extends EngravingLimits {
   colorPrice: number;
 }
 
+/** A texture image prepared by the shop that customers can choose instead of uploading their own. */
+export interface TextureOption {
+  id: string;
+  name: string;
+  /** Uploaded image (`/api/media-files/<id>`) or another site path on the API host. */
+  url: string;
+}
+
 export interface TextureConfig {
   enabled: boolean;
+  /** Charged once per set, whether the texture comes from the library or the customer. */
   price: number;
+  /** Shop textures customers can choose from. Omitted on older products, which offer none. */
+  options?: TextureOption[];
+  /** Customers may upload their own picture. Omitted on older products, which always allowed it. */
+  allowCustom?: boolean;
 }
 
 export interface ProductMedia {
@@ -158,8 +198,17 @@ export interface SurfaceCustomization {
   engravingFont: string;
   /** Filament color for the engraved letters; null leaves them in the print color. */
   engravingColorId: string | null;
-  /** Downscaled image (data URL) applied as a relief texture. */
+  /** Downscaled image (data URL) uploaded by the customer and applied as a relief texture. */
   textureDataUrl: string | null;
+  /**
+   * Shop texture (`TextureOption.id`) applied instead of an uploaded picture.
+   * Omitted when none is chosen, and on cart items and orders that predate the texture library.
+   */
+  textureId?: string | null;
+  /** Replacement for the 3D lettering's suggested text ('' removes the lettering); omitted keeps the suggestion. */
+  extrudedText?: string;
+  /** 3D lettering size in millimeters; omitted keeps the shop's size. */
+  extrudedSizeMm?: number;
 }
 
 /** One scale for the set, with independent appearances for its included plates. */
@@ -169,12 +218,27 @@ export interface Customization extends SurfaceCustomization {
   plates?: Record<string, SurfaceCustomization>;
 }
 
+/** Which texture is applied: a snapshot of the shop texture, or the customer's own picture (kept in the customization). */
+export type TextureSummary =
+  | { source: 'library'; id: string; name: string; url: string }
+  | { source: 'custom' };
+
+/** Filament chosen for one color part. `key` (the file part) is omitted on orders placed before it was recorded. */
+export interface PartChoice {
+  key?: string;
+  name: string;
+  colorName: string;
+  colorHex: string;
+}
+
 export interface AppearanceSummary {
   colorName: string;
   colorHex: string;
   engravingColor?: { name: string; hex: string };
-  parts?: { name: string; colorName: string; colorHex: string }[];
+  parts?: PartChoice[];
   decorationLayout?: DecorationLayout;
+  /** Omitted without a texture, and on orders that predate the texture library. */
+  texture?: TextureSummary;
 }
 
 export interface CartItem {
@@ -190,8 +254,10 @@ export interface CartItem {
   engravingColor?: { name: string; hex: string };
   /** Admin-defined placement snapshot for fulfillment. */
   decorationLayout?: DecorationLayout;
+  /** Texture snapshot, so the order still shows it if the shop later edits its texture library. */
+  texture?: TextureSummary;
   /** Per-part colors of a multi-color model, as chosen when added to the cart. */
-  parts?: { name: string; colorName: string; colorHex: string }[];
+  parts?: PartChoice[];
   /** Snapshot of every plate included in this set. */
   plates?: { id: number; name: string; objectCount: number; appearance?: AppearanceSummary }[];
   unitPrice: number;

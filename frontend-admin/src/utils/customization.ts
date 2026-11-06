@@ -1,7 +1,49 @@
-import type { Customization, Dimensions, MeshPart, Product, SurfaceCustomization } from '../types';
+import { EXTRUDED_SIZE_FACTORS } from '../config';
+import type { Customization, DecorationLayout, Dimensions, ExtrudedTextLayout, MeshPart, MeshPlate, Product, SurfaceCustomization, TextureOption } from '../types';
 import { AXES, baseDimensions } from './sizing';
+import { decorationLayoutFor } from './decorationLayout';
 import { includedProductPlates, plateParts } from './meshPlates';
 import { normalizeEngravingText } from './engraving';
+
+/** A shop texture the product currently offers, or null (unknown id, or textures are off). */
+export function textureOption(product: Product, id: string | null | undefined): TextureOption | null {
+  if (!id || !product.texture.enabled) return null;
+  return product.texture.options?.find((option) => option.id === id) ?? null;
+}
+
+/** Customers may upload their own picture (older products without the setting always allowed it). */
+export function allowsCustomTexture(product: Product): boolean {
+  return product.texture.enabled && product.texture.allowCustom !== false;
+}
+
+/** True when customers have any texture to apply: a shop texture or their own picture. */
+export function offersTexture(product: Product): boolean {
+  return allowsCustomTexture(product) || (product.texture.enabled && (product.texture.options?.length ?? 0) > 0);
+}
+
+/** Sizes the customer may choose for the 3D lettering, around the shop's size. */
+export function extrudedSizeBounds(lettering: ExtrudedTextLayout): { min: number; max: number } {
+  const round = (value: number) => Math.round(value * 10) / 10;
+  return {
+    min: round(Math.max(1, lettering.sizeMm * EXTRUDED_SIZE_FACTORS.min)),
+    max: round(lettering.sizeMm * EXTRUDED_SIZE_FACTORS.max),
+  };
+}
+
+export function clampExtrudedSizeMm(lettering: ExtrudedTextLayout, sizeMm: number | undefined): number {
+  if (typeof sizeMm !== 'number' || !Number.isFinite(sizeMm)) return lettering.sizeMm;
+  const { min, max } = extrudedSizeBounds(lettering);
+  return Math.round(Math.min(max, Math.max(min, sizeMm)) * 10) / 10;
+}
+
+/** The 3D lettering on a surface — the shop's placement with the customer's text and size — or null. */
+export function extrudedTextChoice(layout: DecorationLayout | undefined, choices: SurfaceCustomization) {
+  const lettering = layout?.extrudedText;
+  if (!lettering) return null;
+  const text = typeof choices.extrudedText === 'string' ? choices.extrudedText : lettering.defaultText;
+  if (!text.trim()) return null;
+  return { lettering, text, sizeMm: clampExtrudedSizeMm(lettering, choices.extrudedSizeMm) };
+}
 
 export function defaultSurfaceCustomization(product: Product): SurfaceCustomization {
   return {
@@ -34,8 +76,11 @@ const isDimensions = (value: unknown): value is Dimensions =>
  * while a customer had it selected) and drops options the product doesn't offer.
  * Dimensions are kept as typed — they are validated separately so the customer sees why.
  */
-function normalizeSurface(product: Product, c: SurfaceCustomization, parts: MeshPart[]): SurfaceCustomization {
+function normalizeSurface(product: Product, c: SurfaceCustomization, parts: MeshPart[], plate?: MeshPlate): SurfaceCustomization {
   const fallback = defaultSurfaceCustomization(product);
+  const libraryTexture = textureOption(product, c.textureId);
+  const lettering = decorationLayoutFor(product, plate)?.extrudedText;
+  const letteringSize = lettering && clampExtrudedSizeMm(lettering, c.extrudedSizeMm);
   return {
     colorId: product.colors.some((col) => col.id === c.colorId) ? c.colorId : fallback.colorId,
     // Keep only choices for parts that still exist, with colors that are still offered.
@@ -53,7 +98,13 @@ function normalizeSurface(product: Product, c: SurfaceCustomization, parts: Mesh
       product.colors.some((col) => col.id === c.engravingColorId)
         ? c.engravingColorId
         : null,
-    textureDataUrl: product.texture.enabled ? c.textureDataUrl : null,
+    // A shop texture replaces an uploaded picture; only one texture is applied to a surface.
+    ...(libraryTexture
+      ? { textureDataUrl: null, textureId: libraryTexture.id }
+      : { textureDataUrl: allowsCustomTexture(product) ? c.textureDataUrl : null }),
+    // 3D lettering choices exist only as differences from the shop's suggestion.
+    ...(lettering && typeof c.extrudedText === 'string' && c.extrudedText !== lettering.defaultText && { extrudedText: c.extrudedText }),
+    ...(lettering && letteringSize !== undefined && letteringSize !== lettering.sizeMm && { extrudedSizeMm: letteringSize }),
   };
 }
 
@@ -64,7 +115,7 @@ export function normalizeCustomization(product: Product, c: Customization): Cust
     dimensions: isDimensions(c.dimensions) ? c.dimensions : baseDimensions(product.model),
     ...(plates.length > 0 && {
       plates: Object.fromEntries(plates.map((plate) => [
-        plate.id, normalizeSurface(product, c.plates?.[plate.id] ?? c, plateParts(product, plate)),
+        plate.id, normalizeSurface(product, c.plates?.[plate.id] ?? c, plateParts(product, plate), plate),
       ])),
     }),
   };
@@ -79,13 +130,15 @@ export function customizationSurfaces(product: Product, c: Customization) {
 }
 
 export function normalizeCustomizationText(c: Customization): Customization {
+  const normalizeSurfaceText = <T extends SurfaceCustomization>(choices: T): T => ({
+    ...choices,
+    engravingText: normalizeEngravingText(choices.engravingText),
+    ...(typeof choices.extrudedText === 'string' && { extrudedText: normalizeEngravingText(choices.extrudedText) }),
+  });
   return {
-    ...c,
-    engravingText: normalizeEngravingText(c.engravingText),
+    ...normalizeSurfaceText(c),
     ...(c.plates && {
-      plates: Object.fromEntries(Object.entries(c.plates).map(([id, choices]) => [
-        id, { ...choices, engravingText: normalizeEngravingText(choices.engravingText) },
-      ])),
+      plates: Object.fromEntries(Object.entries(c.plates).map(([id, choices]) => [id, normalizeSurfaceText(choices)])),
     }),
   };
 }

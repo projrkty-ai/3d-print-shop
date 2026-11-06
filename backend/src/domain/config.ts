@@ -38,4 +38,16 @@ export const TEXTURE_ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
 
 export const MODEL_MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 
+/** Characters of the bundled 3D-lettering font: Latin letters (incl. European accents), digits, basic punctuation. */
+export const EXTRUDED_TEXT_ALLOWED = /^[A-Za-z0-9\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u017F .,!?'&\-#@:+]*$/;
+export const EXTRUDED_TEXT_MAX_LENGTH = 60;
+export const EXTRUDED_TEXT_MAX_LINES = 3;
+/** Customers may scale the 3D lettering between these multiples of the shop's size. */
+export const EXTRUDED_SIZE_FACTORS = { min: 0.5, max: 2 } as const;
+/** Bounds of the shop's 3D lettering settings. */
+export const EXTRUDED_POSITION_MAX_MM = 500;
+export const EXTRUDED_SIZE_MM = { min: 1, max: 100 } as const;
+export const EXTRUDED_DEPTH_MM = { min: 0.2, max: 20 } as const;
+export const EXTRUDED_LINE_SPACING = { min: 0.8, max: 3 } as const;
+
 export const MAX_QUANTITY = 20;

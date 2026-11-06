@@ -1,9 +1,12 @@
 import { alignmentLabel, formatCount, formatNumber, t } from '../i18n';
+import { useEffect, useMemo, useState } from 'react';
 import { fontStack } from '../config';
-import type { AppearanceSummary, CartItem, SurfaceCustomization } from '../types';
+import type { AppearanceSummary, Product, SurfaceCustomization } from '../types';
+import { configuredModel, itemSurfaces, type Configured } from '../utils/configuredRender';
+import { extrudedTextChoice } from '../utils/customization';
+import { orderedTextureUrl } from '../utils/texture';
 
-/** The parts of a cart item or order item that describe what the customer configured. */
-type Configured = Pick<CartItem, 'customization' | 'sizeLabel' | 'colorName' | 'colorHex' | 'parts' | 'plates' | 'engravingColor' | 'decorationLayout'>;
+export { itemSurfaces };
 
 /** Solid color, or diagonal bands of each part's color for multi-color prints. */
 function swatchBackground(item: Configured): string {
@@ -16,14 +19,41 @@ function swatchBackground(item: Configured): string {
   return `linear-gradient(135deg, ${stops.join(', ')})`;
 }
 
-/** Color thumbnail, overlaid with the customer's texture picture if there is one. */
+const canRenderModels = () => typeof window !== 'undefined' && 'WebGLRenderingContext' in window;
+
+/**
+ * Picture of the configured print — its model in the chosen colors with the engraving and texture —
+ * rendered off-screen. Shows the color swatch while rendering, or when the product no longer exists.
+ */
+export function ItemThumbnail({ item, product, onOpen }: { item: Configured; product?: Product; onOpen?: () => void }) {
+  const model = useMemo(() => (product && canRenderModels() ? configuredModel(item, product) : null), [item, product]);
+  const [image, setImage] = useState<string | null>(null);
+  useEffect(() => {
+    setImage(null);
+    if (!model) return;
+    let cancelled = false;
+    import('../utils/modelThumbnail')
+      .then(({ configuredThumbnail }) => configuredThumbnail(model))
+      .then((rendered) => !cancelled && setImage(rendered))
+      .catch((error: unknown) => console.warn('Could not render the configured print', error));
+    return () => { cancelled = true; };
+  }, [model]);
+  const picture = image
+    ? <div className="cart-item__swatch cart-item__swatch--model"><img src={image} alt={t("Configured print")} /></div>
+    : <ItemSwatch item={item} />;
+  return onOpen ? (
+    <button type="button" className="item-thumbnail__open" onClick={onOpen} aria-label={t("Show the configured print in 3D")}>
+      {picture}
+    </button>
+  ) : picture;
+}
+
+/** Color thumbnail, overlaid with the first applied texture (shop texture or customer picture). */
 export function ItemSwatch({ item }: { item: Configured }) {
-  const textureDataUrl = item.customization.plates
-    ? Object.values(item.customization.plates).find((choices) => choices.textureDataUrl)?.textureDataUrl
-    : item.customization.textureDataUrl;
+  const textureUrl = itemSurfaces(item).map(({ appearance, choices }) => orderedTextureUrl(appearance, choices)).find(Boolean);
   return (
     <div className="cart-item__swatch" style={{ background: swatchBackground(item) }}>
-      {textureDataUrl && <img src={textureDataUrl} alt={t("Custom texture")} />}
+      {textureUrl && <img src={textureUrl} alt={t("Texture")} />}
     </div>
   );
 }
@@ -59,7 +89,9 @@ export function ConfigurationDetails({ item }: { item: Configured }) {
 }
 
 function AppearanceDetails({ appearance, choices }: { appearance: AppearanceSummary; choices: SurfaceCustomization }) {
-  const { engravingText, engravingFont, textureDataUrl } = choices;
+  const { engravingText, engravingFont } = choices;
+  const textureUrl = orderedTextureUrl(appearance, choices);
+  const lettering = extrudedTextChoice(appearance.decorationLayout, choices);
   return (
     <>
       {appearance.parts ? (
@@ -102,10 +134,21 @@ function AppearanceDetails({ appearance, choices }: { appearance: AppearanceSumm
           </dd>
         </>
       )}
-      {textureDataUrl && (
+      {lettering && (
+        <>
+          <dt>{t("3D lettering")}</dt>
+          <dd>
+            <span className="cart-item__engraving">“{lettering.text}”</span> · {lettering.sizeMm} mm
+          </dd>
+        </>
+      )}
+      {textureUrl && (
         <>
           <dt>{t("Texture")}</dt>
-          <dd>{t("Custom picture")}{appearance.decorationLayout?.texture && (
+          <dd>
+            <img className="config-details__texture" src={textureUrl} alt="" />
+            {appearance.texture?.source === 'library' ? t("Shop texture: {0}", appearance.texture.name) : t("Custom picture")}
+            {appearance.decorationLayout?.texture && (
               <small className="muted">
                 {' '}{t("Center")} {formatNumber(appearance.decorationLayout.texture.centerX)}% / {formatNumber(appearance.decorationLayout.texture.centerY)}% ·{' '}
                 {formatNumber(appearance.decorationLayout.texture.width)}% × {formatNumber(appearance.decorationLayout.texture.height)}%

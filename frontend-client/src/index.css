@@ -1009,6 +1009,92 @@ code,
   gap: 0.5rem;
 }
 
+/* Picture texture choices: none, shop textures and the customer's own picture. */
+.texture-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.texture-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.8rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.texture-option:hover {
+  border-color: var(--accent);
+}
+
+.texture-option.is-selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+}
+
+.texture-option:has(input:focus-visible) {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 2px;
+}
+
+.texture-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.texture-option__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 1.6rem;
+}
+
+.texture-option__image--empty {
+  background: repeating-linear-gradient(135deg, var(--bg) 0 8px, var(--border) 8px 9px);
+}
+
+.texture-option__image--upload {
+  border: 2px dashed #cbd2dd;
+}
+
+.texture-option__name {
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+
+.cart-item__problem {
+  margin: 0.4rem 0 0;
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+
+.config-details__texture {
+  width: 28px;
+  height: 28px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
 .summary {
   padding: 1.25rem;
   background: var(--surface);
@@ -1110,7 +1196,29 @@ code,
   height: 100%;
   object-fit: cover;
   mix-blend-mode: multiply;
-  filter: grayscale(1);
+}
+
+/* Rendered model of the configured print (colors, engraving and texture). */
+.cart-item__swatch--model {
+  background: #eef1f5;
+}
+
+.cart-item__swatch--model img {
+  mix-blend-mode: normal;
+}
+
+.item-thumbnail__open {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+
+.item-thumbnail__open:focus-visible {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 2px;
 }
 
 .cart-item__name {

@@ -98,6 +98,30 @@ player, plus **Move video up/down** buttons for precise or keyboard-accessible p
 These change the video's position among description blocks without removing surrounding
 text. Editor controls are not stored in the description; only the video markup is saved.
 
+## Shop textures
+
+**Picture texture** has a price (charged once per set), **Let customers upload their own
+picture** (on by default; older products keep allowing uploads) and a **Shop textures**
+library. Upload several PNG/JPEG/WebP files at once (maximum 10 MB each); they are stored
+immediately at full resolution in the media-file bucket, named after the file and can be
+renamed, reordered or removed. As with description images, removal and cancelling keep
+the stored file, because orders and other products may refer to it. Saving waits for
+running uploads. The texture must be enabled with at least one shop texture or customer
+uploads allowed. **Preview texture** shows any library texture, the checker sample or no
+texture on the live preview; a newly uploaded texture is previewed automatically.
+
+**3D lettering** adds raised 3D text at a fixed point of the model (or of one plate — the
+plate selector is shared with the live preview). The shop sets the anchor in millimeters
+from the center of the model's footprint (X right, Y toward the back — the front face is at
+−depth/2 — and Z up), the facing/extrusion direction (rotation around the vertical axis and
+a tilt up to lying flat, e.g. on a lid), the size, raise depth, line spacing, alignments and
+the suggested text customers start from. Customers can change the text and scale the size
+between 50% and 200%; there is no extra charge. The lettering prints in the model's color
+and uses the bundled 3D font (a DejaVu Sans subset with Latin letters including European
+accents; regenerate with `node scripts/generate-3d-font.mjs`, license in
+`src/fonts/lettering-font-license.txt`). The live preview, order thumbnails and the order
+viewer all draw it; orders snapshot the placement with the rest of the layout.
+
 Text placement is inside **Engraving**; texture placement/size is inside **Picture
 texture**. Plate selectors in these sections stay synchronized with the live preview.
 Text uses X/Y anchors and left/center/right plus top/middle/bottom alignment. Texture
@@ -107,9 +131,16 @@ Existing saved dimensions are not rewritten simply by opening the editor.
 
 Coordinates describe the unwrapped model: X 50% faces front, X 0/100% meets at the back,
 Y 0% is bottom and Y 100% top. Content wraps horizontally and clips vertically; caps are
-undecorated. Generic boxes retain per-face mapping. Missing layouts preserve centered
-text and repeating texture; reset buttons restore those defaults. Sample text/checker
-patterns are preview-only, not customer content.
+undecorated. Generic boxes retain per-face mapping. Without a layout, text is centered and
+the picture appears once on the front, keeping its proportions inside the default 30% × 60%
+area (also the starting values of the placement controls); a stored texture placement
+stretches the picture to exactly its box. **Reset text placement** and **Reset to default
+placement** restore those defaults. Pictures keep their colors, laid over the filament with
+a relief. Inner walls and the back of open surfaces are never decorated, so nothing shows
+through the model. On plates with several objects (e.g. two vases side by side), every object
+is wrapped around its own vertical axis and carries the plate's text and picture on its own
+front; placement percentages refer to each object's surface. Loose pieces sharing one
+footprint (stacked or nested shells) count as one object. Sample text/checker patterns are preview-only, not customer content.
 
 Product preview links open `/product/:id` **inside this admin application**, behind
 admin sign-in, including unpublished products. The local preview offers per-plate
@@ -118,9 +149,22 @@ appearance and shared scale controls without customer cart or order submission.
 ## Orders
 
 Order list: status filtering, text search, totals. Details: customer/shipping information,
-per-plate filament/text/texture choices and placement snapshots, uploaded texture images,
-price breakdown, status changes and internal notes. The backend validates permissions
-and recalculates prices independently; frontend state is never authoritative.
+per-plate filament/text/texture choices and placement snapshots, price breakdown, status
+changes and internal notes. Every textured surface shows its image: either the shop
+texture snapshotted at checkout (name plus **Open original**, the full-resolution upload,
+even if the texture was later renamed or removed from the product) or the customer's own
+picture with **Download** (named after the order, item and plate). The backend validates
+permissions and recalculates prices independently; frontend state is never authoritative.
+
+Each item shows a rendered picture of the ordered print (the real model in the ordered
+colors, with engraving and texture; plates side by side). Click it to open the 3D viewer:
+an interactive preview of every plate exactly as ordered next to all order parameters —
+size, colors, engraving text/font/color, texture with placement, quantity, prices with
+breakdown and the texture files. Escape, **Close** or clicking outside closes it. The
+colors, text, placement and texture come from the order snapshot; the geometry comes
+from the product's current 3D model, so deleted products show the parameters only.
+Orders record each color part's key for this; older orders fall back to the product's
+current filament colors.
 
 3MF rendering supports standard colors and Bambu/Orca palettes, extruder assignments
 and painted triangles. PrusaSlicer-specific palettes and multiple beds are not supported.

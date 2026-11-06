@@ -1,15 +1,23 @@
 import { t } from '../i18n';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { ConfigurationDetails, ItemSwatch } from '../components/ConfiguredItem';
+import { ConfigurationDetails, ItemThumbnail } from '../components/ConfiguredItem';
 import { MAX_QUANTITY } from '../config';
 import { useCart } from '../store/CartContext';
-import type { Order } from '../types';
+import { useProducts } from '../store/ProductsContext';
+import type { CartItem, Order } from '../types';
+import { customizationTextureErrors } from '../utils/validation';
 import { formatPrice } from '../utils/pricing';
 import { CheckoutForm } from './CheckoutForm';
 
 export function CartPage() {
   const { items, total, updateQuantity, removeItem, clear } = useCart();
+  const { getProduct } = useProducts();
+  /** Texture choices the shop has withdrawn since the item was added; checkout would reject them. */
+  const textureProblems = (item: CartItem) => {
+    const product = getProduct(item.productId);
+    return product ? customizationTextureErrors(product, item.customization) : [];
+  };
   const [checkingOut, setCheckingOut] = useState(false);
   // The placed order, with the cart total it replaced (to explain any price change).
   const [placed, setPlaced] = useState<{ order: Order; cartTotal: number } | null>(null);
@@ -33,12 +41,18 @@ export function CartPage() {
       <ul className="cart__items">
         {items.map((item) => (
           <li key={item.id} className="cart-item">
-            <ItemSwatch item={item} />
+            <ItemThumbnail item={item} product={getProduct(item.productId)} />
             <div className="cart-item__info">
               <Link to={`/product/${item.productId}`} className="cart-item__name">
                 {item.productName}
               </Link>
               <ConfigurationDetails item={item} />
+              {textureProblems(item).map(({ message }) => (
+                <p key={message} className="cart-item__problem" role="alert">
+                  {message}{' '}
+                  <Link to={`/product/${item.productId}`}>{t("Configure again")}</Link>
+                </p>
+              ))}
             </div>
             <div className="cart-item__controls">
               <input

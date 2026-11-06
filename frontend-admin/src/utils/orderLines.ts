@@ -1,11 +1,11 @@
 import { t } from '../i18n';
-import type { AppearanceSummary, CartItem, Customization, DecorationLayout, MeshPart, Product, SurfaceCustomization } from '../types';
+import type { AppearanceSummary, CartItem, Customization, DecorationLayout, MeshPart, Product, SurfaceCustomization, TextureSummary } from '../types';
 import { engravingColor } from './pricing';
 import { formatDimensions } from './sizing';
-import { customizationSurfaces } from './customization';
+import { customizationSurfaces, textureOption } from './customization';
 import { decorationLayoutFor } from './decorationLayout';
 
-export type ConfigurationSummary = Pick<CartItem, 'sizeLabel' | 'colorName' | 'colorHex' | 'parts' | 'plates' | 'engravingColor' | 'decorationLayout'>;
+export type ConfigurationSummary = Pick<CartItem, 'sizeLabel' | 'colorName' | 'colorHex' | 'parts' | 'plates' | 'engravingColor' | 'decorationLayout' | 'texture'>;
 
 /**
  * Readable snapshot of a configured product, stored with cart items and orders so they
@@ -27,18 +27,27 @@ export function summarizeConfiguration(product: Product, customization: Customiz
 
 function summarizeAppearance(product: Product, customization: SurfaceCustomization, parts: MeshPart[], layout?: DecorationLayout): AppearanceSummary {
   const textColor = engravingColor(product, customization);
+  const texture = summarizeTexture(product, customization);
   const common = {
     ...(textColor && { engravingColor: { name: textColor.name, hex: textColor.hex } }),
     ...(layout && { decorationLayout: structuredClone(layout) }),
+    ...(texture && { texture }),
   };
   if (parts.length > 0) {
     const choices = parts.map((part) => {
       const filament = product.colors.find((c) => c.id === customization.partColors[part.key]);
-      return { name: part.name, colorName: filament?.name ?? t("Original"), colorHex: filament?.hex ?? part.fileColor };
+      return { key: part.key, name: part.name, colorName: filament?.name ?? t("Original"), colorHex: filament?.hex ?? part.fileColor };
     });
     return { ...common, colorName: t("Multi-color"), colorHex: choices[0].colorHex, parts: choices };
   }
 
   const color = product.colors.find((c) => c.id === customization.colorId) ?? product.colors[0];
   return { ...common, colorName: color.name, colorHex: color.hex };
+}
+
+/** Snapshot of the applied texture; the customer's own picture stays in the customization itself. */
+function summarizeTexture(product: Product, customization: SurfaceCustomization): TextureSummary | undefined {
+  const option = textureOption(product, customization.textureId);
+  if (option) return { source: 'library', id: option.id, name: option.name, url: option.url };
+  return product.texture.enabled && customization.textureDataUrl ? { source: 'custom' } : undefined;
 }

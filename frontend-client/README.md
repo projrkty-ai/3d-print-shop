@@ -43,7 +43,7 @@ remain unchanged. Never configure an admin secret in this application.
 - `/`: catalog with actual STL/3MF thumbnails. Product photos take precedence.
   Thumbnails are lazy-loaded, cached and generated with one short-lived off-screen renderer.
 - `/product/:id`: live model previews, proportional size controls (5–270 mm per side),
-  filament selection and painted-part replacements, text/font/text color and image relief.
+  filament selection and painted-part replacements, text/font/text color and picture texture.
   On desktop, the description and media carousel occupy the left column; every preview,
   appearance/size control and order action occupies the right. Mobile stacks description
   before configuration. The product photo, carousel-only gallery and inline images/videos
@@ -55,16 +55,31 @@ remain unchanged. Never configure an admin secret in this application.
   Reduced-motion preferences shorten slide animations and disable arrow fades. Video
   players stay between the navigation areas so their native controls remain usable;
   leaving a video unmounts it immediately instead of keeping hidden playback running.
+- 3D lettering: when the shop placed raised 3D text on the model, the product page shows
+  its suggested text and size. Customers edit the text (clearing it prints none) or scale
+  the size between 50% and 200%; the preview, cart thumbnail and order render the raised
+  letters on the model in its print color. The bundled 3D font (a DejaVu Sans subset, see
+  `src/fonts/lettering-font-license.txt`) covers Latin letters including European accents.
+- Picture texture: customers choose **No texture**, one of the shop's textures (thumbnail
+  tiles defined by the administrator) or **Your picture** (a browser-downscaled upload),
+  when the product allows uploads. The 3D preview shows the chosen texture, and the price
+  summary names the chosen shop textures. Switching to a shop texture and back restores
+  the last uploaded picture during the visit. Products without shop textures show the
+  original upload field only.
 - `/cart`: persistent cart and checkout. The backend recalculates the current prices.
+  Items show their texture (shop texture name or custom picture). If the shop withdraws a
+  chosen texture, the cart says so and links back to the product; checkout rejects it.
   There is no online payment; successful checkout records an order for shop follow-up.
 
 Browser drafts use `printforge.productDraft:<id>` in localStorage. Dimensions/shared
 scale, quantity and every plate's colors, lettering and uploaded texture survive
-navigation and reload, even after adding to the cart. Current product metadata repairs
-obsolete choices. Invalid text or unfinished dimensions stay editable and block ordering.
-Storage failures show a warning. Cart storage remains `printforge.cart`. Drafts and cart
-are local to the browser origin, so retain the previous shop origin when deploying this
-separation if customers should retain their existing browser state.
+navigation and reload, even after adding to the cart. A selected shop texture is saved by
+id (`textureId`); drafts from before the texture library remain valid. Current product
+metadata repairs obsolete choices. Invalid text or unfinished dimensions stay editable
+and block ordering. Storage failures show a warning. Cart storage remains
+`printforge.cart`. Drafts and cart are local to the browser origin, so retain the previous
+shop origin when deploying this separation if customers should retain their existing
+browser state.
 
 Rich descriptions use `descriptionFormat: "html"` and are sanitized before rendering.
 Older descriptions remain escaped plain text, including literal angle brackets. The
@@ -84,8 +99,19 @@ premium filament is charged once per filament, and engraving/colored engraving/t
 fees once per set. Cart details retain each plate's appearance.
 
 Administrator-owned text anchors/alignment and texture centers/sizes apply automatically
-to these previews. Missing layout settings keep legacy centered text and repeated texture.
-Caps are undecorated. Customers cannot override the stored placement through checkout.
+to these previews. Without settings, text is centered and the picture appears once on the
+front, keeping its proportions within 30% of the circumference × 60% of the height; it never
+wraps around the whole model. Pictures keep their own colors, laid over the filament with
+a relief; engraving is drawn on top. Caps, inner walls (e.g. inside a vase) and the back
+of open surfaces stay undecorated. When a plate holds several objects, each one shows the
+plate's text and picture on its own front. Customers cannot override the stored placement through
+checkout.
+
+Cart items show a rendered picture of the configured print — the real model in the chosen
+colors with its engraving and texture, each plate of a set side by side at relative size —
+made off-screen with one shared WebGL context and cached. It uses the item's own snapshot
+(colors, text, placement, texture) and the product's 3D model; while rendering, without
+WebGL or when the product is no longer available, the color swatch is shown instead.
 
 The local `fixtures/models/` directory is used only by tests and is not the runtime model
 source. Production model assets belong to the backend.

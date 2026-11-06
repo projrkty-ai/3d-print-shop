@@ -1,7 +1,7 @@
 import { t } from '../i18n';
 import { fontStack } from '../config';
 import type { DecorationLayout, TextLayout, TextureLayout } from '../types';
-import { DEFAULT_TEXT_LAYOUT } from './decorationLayout';
+import { DEFAULT_TEXT_LAYOUT, DEFAULT_TEXTURE_LAYOUT } from './decorationLayout';
 import { engravingLines } from './engraving';
 import type { SurfaceSpec } from './mesh';
 
@@ -11,7 +11,7 @@ const TEXT_HEIGHT_FRACTION = 0.6;
 const LINE_HEIGHT = 1.2;
 
 export type SurfaceDrawingContext = Pick<CanvasRenderingContext2D,
-  'save' | 'restore' | 'fillRect' | 'drawImage' | 'translate' | 'scale' | 'fillText' |
+  'save' | 'restore' | 'fillRect' | 'clearRect' | 'drawImage' | 'translate' | 'scale' | 'fillText' |
   'fillStyle' | 'font' | 'globalAlpha' | 'globalCompositeOperation' | 'textAlign' | 'textBaseline'
 > & { measureText(text: string): { width: number } };
 
@@ -19,8 +19,11 @@ interface SurfaceCanvas {
   getContext(contextId: '2d'): SurfaceDrawingContext | null;
 }
 
+/** The picture to place; only its pixel size matters for the default placement. */
+type Picture = CanvasImageSource & { naturalWidth: number; naturalHeight: number };
+
 interface PaintOptions {
-  image: HTMLImageElement | null;
+  image: Picture | null;
   text: string;
   font: string;
   spec: SurfaceSpec;
@@ -38,24 +41,58 @@ export function textureRectangles(layout: TextureLayout) {
     .filter((rect) => rect.left < CANVAS_W && rect.left + rect.width > 0);
 }
 
-/** Surface color and bump share this image; the lettering mask uses the exact same text layout. */
-export function paintSurface(canvas: SurfaceCanvas, { image, text, font, spec, layout }: PaintOptions) {
+/**
+ * Without an administrator placement the picture appears once, on the front, undistorted: as large
+ * as fits inside DEFAULT_TEXTURE_LAYOUT, so it never wraps around the whole model.
+ */
+export function defaultTextureLayout(image: Pick<Picture, 'naturalWidth' | 'naturalHeight'>, spec: SurfaceSpec): TextureLayout {
+  const box = DEFAULT_TEXTURE_LAYOUT;
+  const aspect = image.naturalWidth > 0 && image.naturalHeight > 0 ? image.naturalWidth / image.naturalHeight : 1;
+  // Width and height percentages of the unwrapped surface, whose width is surfaceAspect × its height.
+  let height = box.height;
+  let width = aspect * height / spec.surfaceAspect;
+  if (width > box.width) {
+    width = box.width;
+    height = width * spec.surfaceAspect / aspect;
+  }
+  return { centerX: box.centerX, centerY: box.centerY, width, height };
+}
+
+function pictureRectangles(image: Picture, spec: SurfaceSpec, layout?: DecorationLayout) {
+  return textureRectangles(layout?.texture ?? defaultTextureLayout(image, spec));
+}
+
+function context(canvas: SurfaceCanvas) {
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error(t("The browser could not create a preview surface canvas."));
+  return ctx;
+}
+
+/**
+ * Color map: white, with engraved letters shaded darker. The picture itself is not here — it is
+ * mixed in at full color from `paintTextureColors`, and its relief comes from `paintRelief`.
+ */
+export function paintSurface(canvas: SurfaceCanvas, { text, font, spec, layout }: Omit<PaintOptions, 'image'>) {
+  const ctx = context(canvas);
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+  drawGrooves(ctx, text, font, spec, layout);
+  ctx.restore();
+}
+
+/** Bump map: the picture's brightness becomes height, and the lettering is pressed in. */
+export function paintRelief(canvas: SurfaceCanvas, { image, text, font, spec, layout }: PaintOptions) {
+  const ctx = context(canvas);
   ctx.save();
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
   if (image) {
-    if (layout?.texture) {
-      for (const rect of textureRectangles(layout.texture)) ctx.drawImage(image, rect.left, rect.top, rect.width, rect.height);
-    } else {
-      const idealTileW = CANVAS_H * (image.naturalWidth / image.naturalHeight) * squeezeFor(spec);
-      const columns = Math.max(1, Math.round(CANVAS_W / idealTileW));
-      const tileW = CANVAS_W / columns;
-      for (let col = 0; col < columns; col++) ctx.drawImage(image, col * tileW, 0, tileW, CANVAS_H);
-    }
+    for (const rect of pictureRectangles(image, spec, layout)) ctx.drawImage(image, rect.left, rect.top, rect.width, rect.height);
     ctx.globalCompositeOperation = 'saturation';
     ctx.fillStyle = '#808080';
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
@@ -64,13 +101,30 @@ export function paintSurface(canvas: SurfaceCanvas, { image, text, font, spec, l
     ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     ctx.globalCompositeOperation = 'source-over';
   }
+  drawGrooves(ctx, text, font, spec, layout);
+  ctx.restore();
+}
+
+/** The picture in its own colors on a transparent surface; the preview shader lays it over the filament. */
+export function paintTextureColors(canvas: SurfaceCanvas, { image, spec, layout }: Pick<PaintOptions, 'image' | 'spec' | 'layout'>) {
+  const ctx = context(canvas);
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+  if (image) {
+    for (const rect of pictureRectangles(image, spec, layout)) ctx.drawImage(image, rect.left, rect.top, rect.width, rect.height);
+  }
+  ctx.restore();
+}
+
+function drawGrooves(ctx: SurfaceDrawingContext, text: string, font: string, spec: SurfaceSpec, layout?: DecorationLayout) {
   drawEngraving(ctx, text, font, spec, (line, y, fontSize) => {
     ctx.fillStyle = 'rgba(255,255,255,0.6)';
     ctx.fillText(line, 0, y + fontSize * 0.04);
     ctx.fillStyle = 'rgba(20,20,20,0.75)';
     ctx.fillText(line, 0, y);
   }, layout?.text);
-  ctx.restore();
 }
 
 export function paintEngravingMask(canvas: SurfaceCanvas, { text, font, spec, layout }: Omit<PaintOptions, 'image'>) {

@@ -3,7 +3,7 @@ import { CURRENCY, LOCALE } from '../config';
 import type { ColorOption, Customization, Dimensions, PriceLine, Product, SurfaceCustomization } from '../types';
 import { formatDimensions, formatVolume, minUniformScale, scaleDimensions, scaledVolumeCm3 } from './sizing';
 import { includedProductPlates, plateParts, selectedPlateIds } from './meshPlates';
-import { customizationSurfaces } from './customization';
+import { customizationSurfaces, textureOption } from './customization';
 
 export type { PriceLine };
 
@@ -70,8 +70,15 @@ export function calculatePrice(product: Product, customization: Customization): 
     }
   }
 
-  if (product.texture.enabled && surfaces.some(({ choices }) => choices.textureDataUrl)) {
-    lines.push({ label: t("Picture texture"), amount: product.texture.price });
+  const textures = surfaces.flatMap(({ choices }) => {
+    const option = textureOption(product, choices.textureId);
+    return option ? [{ name: option.name, library: true }]
+      : product.texture.enabled && choices.textureDataUrl ? [{ name: t("Custom picture"), library: false }] : [];
+  });
+  if (textures.length > 0) {
+    // Name the chosen shop textures; legacy orders with only an uploaded picture keep a plain line.
+    const note = textures.some(({ library }) => library) ? [...new Set(textures.map(({ name }) => name))].join(', ') : undefined;
+    lines.push({ label: t("Picture texture"), amount: product.texture.price, ...(note && { note }) });
   }
 
   const unitPrice = roundCents(lines.reduce((sum, line) => sum + line.amount, 0));

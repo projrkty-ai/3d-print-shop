@@ -7,13 +7,14 @@ import { DimensionsInput } from '../components/customization/DimensionsInput';
 import { SurfaceOptions } from '../components/customization/SurfaceOptions';
 import { useProducts } from '../store/ProductsContext';
 import type { Customization, Product, SurfaceCustomization } from '../types';
-import { customizationSurfaces, defaultCustomization, normalizeCustomization } from '../utils/customization';
+import { customizationSurfaces, defaultCustomization, extrudedTextChoice, normalizeCustomization } from '../utils/customization';
 import { decorationLayoutFor } from '../utils/decorationLayout';
 import { calculatePrice, engravingColor, formatPrice, sizePrice } from '../utils/pricing';
 import { formatDimensions, nearestPrintable, previewScale, validateDimensions } from '../utils/sizing';
-import { customizationEngravingErrors } from '../utils/validation';
+import { customizationEngravingErrors, customizationExtrudedTextErrors } from '../utils/validation';
 import { NotFoundPage } from './NotFoundPage';
 import { ProductDescription } from '../components/ProductDescription';
+import { appliedTextureUrl } from '../utils/texture';
 
 export function ProductPreviewPage() {
   const { productId } = useParams();
@@ -32,6 +33,7 @@ function Preview({ product }: { product: Product }) {
   const scale = previewScale(product.model, dimensions);
   const dimensionError = validateDimensions(customization.dimensions);
   const errors = customizationEngravingErrors(product, customization);
+  const extrudedErrors = customizationExtrudedTextErrors(product, customization);
   const update = (patch: Partial<Customization>) => setDraft((previous) => ({ ...previous, ...patch }));
   function updateSurface(plateId: number | undefined, patch: Partial<SurfaceCustomization>) {
     setDraft((previous) => {
@@ -67,11 +69,17 @@ function Preview({ product }: { product: Product }) {
               engravingText={choices.engravingText}
               engravingFont={choices.engravingFont}
               engravingColor={engravingColor(product, choices)?.hex ?? null}
-              textureDataUrl={choices.textureDataUrl}
+              textureUrl={appliedTextureUrl(product, choices)}
               decorationLayout={decorationLayoutFor(product, plate)}
+              extrudedText={(() => {
+                const choice = extrudedTextChoice(decorationLayoutFor(product, plate), choices);
+                return choice && { layout: choice.lettering, text: choice.text, sizeMm: choice.sizeMm, modelMm: plate?.model ?? product.model };
+              })()}
             />
             <SurfaceOptions product={product} parts={parts} value={choices}
               error={errors.find((error) => error.plateId === (plate?.id ?? null))?.message ?? null}
+              decorationLayout={decorationLayoutFor(product, plate)}
+              extrudedError={extrudedErrors.find((error) => error.plateId === (plate?.id ?? null))?.message ?? null}
               onChange={(patch) => updateSurface(plate?.id, patch)} perSet={plate !== null} />
           </section>
         ))}

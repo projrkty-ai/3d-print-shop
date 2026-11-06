@@ -6,63 +6,14 @@ import * as THREE from 'three';
 import { loadModelBuffer } from '../api/client';
 import type { DecorationLayout, PreviewShape } from '../types';
 import { MeshFileError, parseMeshFile, prepareMeshForPreview, type PreparedMesh, type SurfaceSpec } from '../utils/mesh';
-import { CANVAS_W, CANVAS_H, paintSurface, paintEngravingMask } from '../utils/surfacePainting';
+import { DecoratedSurface, loadPicture } from '../utils/decoratedSurface';
+import type { ExtrudedTextPlacement } from '../utils/extrudedText';
+import { SHAPES } from '../utils/previewShapes';
 
 const GROUND_Y = -1;
 /** Displayed scale range; prints outside it are shown at the nearest bound. */
 const PREVIEW_MAX_SCALE = 1.2;
 const PREVIEW_MIN_SCALE = 0.6;
-
-/** Built-in preview geometry. Material slots: front = texture + engraving, side = texture only, plain = color only. */
-interface ShapeSpec extends SurfaceSpec {
-  createGeometry: () => THREE.BufferGeometry;
-}
-
-function vaseGeometry() {
-  const points: THREE.Vector2[] = [new THREE.Vector2(0, -1)];
-  const steps = 48;
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const r = 0.45 + 0.38 * Math.sin(Math.PI * Math.min(t * 1.15, 1)) + 0.15 * t ** 4;
-    points.push(new THREE.Vector2(r, t * 2 - 1));
-  }
-  return new THREE.LatheGeometry(points, 96);
-}
-
-const SHAPES: Record<PreviewShape, ShapeSpec> = {
-  vase: {
-    createGeometry: vaseGeometry,
-    rotationY: Math.PI,
-    surfaceAspect: 2,
-    textWidthFraction: 0.28,
-    bottomY: -1,
-    doubleSided: true,
-  },
-  cylinder: {
-    createGeometry: () => new THREE.CylinderGeometry(0.75, 0.75, 1.8, 96),
-    slots: ['front', 'plain', 'plain'],
-    rotationY: Math.PI,
-    surfaceAspect: (2 * Math.PI * 0.75) / 1.8,
-    textWidthFraction: 0.3,
-    bottomY: -0.9,
-  },
-  box: {
-    createGeometry: () => new THREE.BoxGeometry(1.5, 1.5, 1.5),
-    // BoxGeometry groups: +x, -x, +y, -y, +z (front), -z
-    slots: ['side', 'side', 'plain', 'plain', 'front', 'side'],
-    rotationY: -Math.PI / 7,
-    surfaceAspect: 1,
-    textWidthFraction: 0.8,
-    bottomY: -0.75,
-  },
-  sphere: {
-    createGeometry: () => new THREE.SphereGeometry(1, 96, 64),
-    rotationY: -Math.PI / 2,
-    surfaceAspect: 2,
-    textWidthFraction: 0.22,
-    bottomY: -1,
-  },
-};
 
 function useLoadedImage(src: string | null): HTMLImageElement | null {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
@@ -72,83 +23,12 @@ function useLoadedImage(src: string | null): HTMLImageElement | null {
       return;
     }
     let cancelled = false;
-    const img = new Image();
-    img.onload = () => !cancelled && setImage(img);
-    img.onerror = () => !cancelled && setImage(null);
-    img.src = src;
+    loadPicture(src).then((loaded) => !cancelled && setImage(loaded), () => !cancelled && setImage(null));
     return () => {
       cancelled = true;
     };
   }, [src]);
   return image;
-}
-
-/** A canvas-backed color map + bump map pair that is repainted in place. */
-function useSurfaceTextures() {
-  const surface = useMemo(() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_W;
-    canvas.height = CANVAS_H;
-    const map = new THREE.CanvasTexture(canvas);
-    map.colorSpace = THREE.SRGBColorSpace;
-    map.anisotropy = 8;
-    const bump = new THREE.CanvasTexture(canvas);
-    // Model-file UVs may exceed 1 where triangles cross the seam at the back; wrap instead of clamping.
-    map.wrapS = bump.wrapS = THREE.RepeatWrapping;
-    return { canvas, map, bump };
-  }, []);
-
-  useEffect(
-    () => () => {
-      surface.map.dispose();
-      surface.bump.dispose();
-    },
-    [surface],
-  );
-  return surface;
-}
-
-/**
- * Text color for the engraving. Front materials sample the engraving mask and replace their
- * color with `engravingColor` inside the letters (strength 0 = plain groove in the print color).
- * The uniform objects are shared by every front material, so a color change needs no recompile.
- */
-function useEngravingColorUniforms() {
-  const engraving = useMemo(() => {
-    const canvas = document.createElement('canvas');
-    canvas.width = CANVAS_W;
-    canvas.height = CANVAS_H;
-    const mask = new THREE.CanvasTexture(canvas);
-    mask.wrapS = THREE.RepeatWrapping; // same UV wrapping as the surface map
-    const uniforms = {
-      engravingColor: { value: new THREE.Color() },
-      engravingMask: { value: mask },
-      engravingStrength: { value: 0 },
-    };
-    return { canvas, mask, uniforms };
-  }, []);
-  useEffect(() => () => engraving.mask.dispose(), [engraving]);
-  return engraving;
-}
-
-function addEngravingColor(material: THREE.MeshStandardMaterial, uniforms: ReturnType<typeof useEngravingColorUniforms>['uniforms']) {
-  material.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nuniform vec3 engravingColor;\nuniform sampler2D engravingMask;\nuniform float engravingStrength;',
-      )
-      .replace(
-        '#include <map_fragment>',
-        `#include <map_fragment>
-        #ifdef USE_MAP
-          diffuseColor.rgb = mix(diffuseColor.rgb, engravingColor, texture2D(engravingMask, vMapUv).r * engravingStrength);
-        #endif`,
-      );
-  };
-  // Keep these programs apart from plain materials with otherwise identical settings.
-  material.customProgramCacheKey = () => 'engraving-color';
 }
 
 /** Scale relative to the original model along x (width), y (height) and z (depth). */
@@ -174,8 +54,11 @@ interface AppearanceProps {
   engravingFont: string;
   /** Fill color for the engraved letters; null leaves them in the print color. */
   engravingColor?: string | null;
-  textureDataUrl: string | null;
+  /** Picture embossed on the surface: the customer's data URL or a resolved shop texture URL. */
+  textureUrl: string | null;
   decorationLayout?: DecorationLayout;
+  /** Raised 3D lettering placed by the shop, with the customer's text and size. */
+  extrudedText?: ExtrudedTextPlacement | null;
 }
 
 interface SurfaceMeshProps extends Omit<AppearanceProps, 'color'> {
@@ -194,74 +77,64 @@ function SurfaceMesh({
   engravingText,
   engravingFont,
   engravingColor = null,
-  textureDataUrl,
+  textureUrl,
   decorationLayout,
+  extrudedText = null,
 }: SurfaceMeshProps) {
-  const image = useLoadedImage(textureDataUrl);
-  const front = useSurfaceTextures();
-  const side = useSurfaceTextures();
-  const engraving = useEngravingColorUniforms();
+  const image = useLoadedImage(textureUrl);
+  const surface = useMemo(() => new DecoratedSurface(spec), [spec]);
+  useEffect(() => () => surface.dispose(), [surface]);
 
-  // One material per slot, since slots of different parts need different colors.
-  const materials = useMemo(() => {
-    const make = (textures?: { map: THREE.Texture; bump: THREE.Texture }) =>
-      new THREE.MeshStandardMaterial({
-        roughness: 0.55,
-        metalness: 0.05,
-        map: textures?.map ?? null,
-        bumpMap: textures?.bump ?? null,
-        bumpScale: 4,
-      });
-    return (spec.slots ?? ['front']).map((slot) => {
-      if (slot !== 'front') return make(slot === 'side' ? side : undefined);
-      const material = make(front);
-      addEngravingColor(material, engraving.uniforms);
-      return material;
-    });
-  }, [front, side, engraving, spec]);
-
-  useEffect(() => () => materials.forEach((m) => m.dispose()), [materials]);
+  // The lettering mesh; rebuilt when the text, size or placement changes.
+  const extrudedKey = extrudedText ? JSON.stringify(extrudedText) : null;
+  const letteringGeometry = useMemo(() => {
+    if (!extrudedKey) return null;
+    geometry.computeBoundingBox();
+    return import('../utils/extrudedText').then(({ extrudedTextGeometry }) =>
+      extrudedTextGeometry(JSON.parse(extrudedKey) as ExtrudedTextPlacement, geometry.boundingBox!));
+  }, [extrudedKey, geometry]);
+  const lettering = usePromised(letteringGeometry);
+  useEffect(() => () => {
+    void Promise.resolve(letteringGeometry).then((resolved) => resolved?.dispose());
+  }, [letteringGeometry]);
 
   // A string key, so a new-but-equal colors array doesn't force a material update every render.
   const colorsKey = colors.join(',');
+  useEffect(() => surface.setColors(colorsKey.split(',')), [surface, colorsKey]);
   useEffect(() => {
-    const sideMode = spec.doubleSided ? THREE.DoubleSide : THREE.FrontSide;
-    const partColors = colorsKey.split(',');
-    materials.forEach((m, i) => {
-      m.color.set(partColors[spec.slotParts?.[i] ?? 0] ?? partColors[0]);
-      m.side = sideMode;
-      m.needsUpdate = true;
-    });
-  }, [materials, colorsKey, spec]);
-
-  useEffect(() => {
-    paintSurface(front.canvas, { image, text: engravingText, font: engravingFont, spec, layout: decorationLayout });
-    paintSurface(side.canvas, { image, text: '', font: engravingFont, spec, layout: decorationLayout });
-    for (const t of [front.map, front.bump, side.map, side.bump]) t.needsUpdate = true;
-  }, [front, side, image, engravingText, engravingFont, spec, decorationLayout]);
-
-  useEffect(() => {
-    paintEngravingMask(engraving.canvas, { text: engravingText, font: engravingFont, spec, layout: decorationLayout });
-    engraving.mask.needsUpdate = true;
-  }, [engraving, engravingText, engravingFont, spec, decorationLayout]);
-
-  useEffect(() => {
-    engraving.uniforms.engravingStrength.value = engravingColor ? 1 : 0;
-    if (engravingColor) engraving.uniforms.engravingColor.value.set(engravingColor);
-  }, [engraving, engravingColor]);
+    surface.paint({ image, text: engravingText, font: engravingFont, layout: decorationLayout });
+  }, [surface, image, engravingText, engravingFont, decorationLayout]);
+  useEffect(() => surface.setEngravingColor(engravingColor), [surface, engravingColor]);
 
   const displayScale = fitToView(scale);
 
   return (
-    <mesh
-      geometry={geometry}
-      material={spec.slots ? materials : materials[0]}
-      rotation-y={spec.rotationY}
-      scale={displayScale}
-      position-y={GROUND_Y - spec.bottomY * displayScale[1]}
-      castShadow
-    />
+    <group rotation-y={spec.rotationY} scale={displayScale} position-y={GROUND_Y - spec.bottomY * displayScale[1]}>
+      <mesh geometry={geometry} material={spec.slots ? surface.materials : surface.materials[0]} castShadow />
+      {lettering && (
+        <mesh geometry={lettering} castShadow>
+          <meshStandardMaterial color={colors[0]} roughness={0.55} metalness={0.05} />
+        </mesh>
+      )}
+    </group>
   );
+}
+
+/** Latest resolved value of a possibly-async computation (the lettering font loads lazily). */
+function usePromised<T>(value: T | Promise<T | null> | null): T | null {
+  const [resolved, setResolved] = useState<T | null>(null);
+  useEffect(() => {
+    if (!value || !(value instanceof Promise)) {
+      setResolved(value);
+      return;
+    }
+    let cancelled = false;
+    value.then((result) => !cancelled && setResolved(result), () => !cancelled && setResolved(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+  return resolved;
 }
 
 function ShapeModel({ shape, color, ...appearance }: AppearanceProps & { shape: PreviewShape }) {

@@ -95,6 +95,11 @@ export const api = {
     request<{ url: string }>('POST', '/media-files', {
       body: file, headers: { 'Content-Type': 'application/octet-stream' },
     }),
+  /** Shop texture images are public media files too; the original is kept at full resolution for printing. */
+  uploadTextureImage: (file: File) =>
+    request<{ url: string }>('POST', '/media-files', {
+      body: file, headers: { 'Content-Type': 'application/octet-stream' },
+    }),
 
   listOrders: (status?: OrderStatus) => request<Order[]>('GET', `/orders${status ? `?status=${status}` : ''}`),
   getOrder: (id: string) => request<Order>('GET', orderPath(id)),

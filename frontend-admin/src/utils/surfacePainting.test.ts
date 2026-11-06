@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { TextLayout } from '../types';
 import { DEFAULT_TEXT_LAYOUT } from './decorationLayout';
 import type { SurfaceSpec } from './mesh';
-import { CANVAS_H, CANVAS_W, drawEngraving, paintEngravingMask, paintSurface, textureRectangles, type SurfaceDrawingContext } from './surfacePainting';
+import { CANVAS_H, CANVAS_W, defaultTextureLayout, drawEngraving, paintEngravingMask, paintRelief, paintSurface, paintTextureColors, textureRectangles, type SurfaceDrawingContext } from './surfacePainting';
 
 const spec: SurfaceSpec = {
   slots: ['side'], slotParts: [0], rotationY: 0, surfaceAspect: 2, textWidthFraction: 0.5, bottomY: -1,
@@ -11,7 +11,7 @@ const spec: SurfaceSpec = {
 
 function drawingContext() {
   return {
-    save: vi.fn(), restore: vi.fn(), fillRect: vi.fn(), drawImage: vi.fn(),
+    save: vi.fn(), restore: vi.fn(), fillRect: vi.fn(), clearRect: vi.fn(), drawImage: vi.fn(),
     translate: vi.fn(), scale: vi.fn(), fillText: vi.fn(), measureText: vi.fn(() => ({ width: 100 })),
     fillStyle: '#ffffff', font: '', globalAlpha: 1, globalCompositeOperation: 'source-over',
     textAlign: 'center', textBaseline: 'middle',
@@ -60,7 +60,7 @@ describe('surface decoration painting', () => {
     const mask = drawingContext();
     const text: TextLayout = { centerX: 3, centerY: 80, horizontalAlign: 'right', verticalAlign: 'bottom' };
     const options = { text: 'First\nSecond', font: 'Arial', spec, layout: { text } };
-    paintSurface({ getContext: () => surface }, { ...options, image: null });
+    paintSurface({ getContext: () => surface }, options);
     paintEngravingMask({ getContext: () => mask }, options);
     expect(surface.translate.mock.calls).toEqual(mask.translate.mock.calls);
     expect(surface.scale.mock.calls).toEqual(mask.scale.mock.calls);
@@ -68,17 +68,29 @@ describe('surface decoration painting', () => {
     expect(surface.textAlign).toBe(mask.textAlign);
   });
 
-  it('positions and sizes one texture using surface percentages', () => {
+  it('positions and sizes one texture using surface percentages, in relief and in color', () => {
     expect(textureRectangles({ centerX: 25, centerY: 75, width: 20, height: 50 })).toEqual([
       { left: 153.6, top: 0, width: 204.8, height: 256 },
     ]);
-    const ctx = drawingContext();
     const image = document.createElement('img');
-    paintSurface({ getContext: () => ctx }, {
-      image, text: '', font: 'Arial', spec,
-      layout: { texture: { centerX: 25, centerY: 75, width: 20, height: 50 } },
-    });
-    expect(ctx.drawImage.mock.calls).toEqual([[image, 153.6, 0, 204.8, 256]]);
+    const layout = { texture: { centerX: 25, centerY: 75, width: 20, height: 50 } };
+    const relief = drawingContext();
+    paintRelief({ getContext: () => relief }, { image, text: '', font: 'Arial', spec, layout });
+    expect(relief.drawImage.mock.calls).toEqual([[image, 153.6, 0, 204.8, 256]]);
+    const colors = drawingContext();
+    paintTextureColors({ getContext: () => colors }, { image, spec, layout });
+    expect(colors.clearRect).toHaveBeenCalledWith(0, 0, CANVAS_W, CANVAS_H);
+    expect(colors.drawImage.mock.calls).toEqual([[image, 153.6, 0, 204.8, 256]]);
+    // The overlay keeps the picture's own colors: no desaturation, unlike the relief.
+    expect(colors.globalCompositeOperation).toBe('source-over');
+    expect(colors.fillRect).not.toHaveBeenCalled();
+  });
+
+  it('keeps pictures out of the color map, which only shades the engraving', () => {
+    const ctx = drawingContext();
+    paintSurface({ getContext: () => ctx }, { text: 'Hi', font: 'Arial', spec });
+    expect(ctx.drawImage).not.toHaveBeenCalled();
+    expect(ctx.fillText).toHaveBeenCalled();
   });
 
   it('wraps texture across the horizontal seam but leaves vertical clipping to the canvas', () => {
@@ -92,19 +104,30 @@ describe('surface decoration painting', () => {
     ]);
   });
 
-  it('keeps legacy whole-height tiling when only the text placement changes', () => {
+  it('places one undistorted picture on the front when no texture placement is set', () => {
     const image = document.createElement('img');
     Object.defineProperties(image, { naturalWidth: { value: 100 }, naturalHeight: { value: 100 } });
+    // On a surface twice as wide as tall, a square picture 60% high needs 30% of the width.
+    expect(defaultTextureLayout(image, spec)).toEqual({ centerX: 50, centerY: 50, width: 30, height: 60 });
     for (const layout of [undefined, { text: DEFAULT_TEXT_LAYOUT }]) {
-      const ctx = drawingContext();
-      paintSurface({ getContext: () => ctx }, { image, text: '', font: 'Arial', spec, layout });
-      expect(ctx.drawImage.mock.calls).toEqual([[image, 0, 0, 512, 512], [image, 512, 0, 512, 512]]);
+      for (const paint of [paintRelief, paintTextureColors]) {
+        const ctx = drawingContext();
+        paint({ getContext: () => ctx }, { image, text: '', font: 'Arial', spec, layout });
+        expect(ctx.drawImage.mock.calls).toEqual([[image, 358.4, 102.4, 307.2, 307.2]]);
+      }
     }
+  });
+
+  it('shrinks wide pictures to the default width instead of wrapping them around the model', () => {
+    expect(defaultTextureLayout({ naturalWidth: 400, naturalHeight: 100 }, spec)).toEqual({ centerX: 50, centerY: 50, width: 30, height: 15 });
+    expect(defaultTextureLayout({ naturalWidth: 100, naturalHeight: 400 }, { ...spec, surfaceAspect: 1 })).toEqual({ centerX: 50, centerY: 50, width: 15, height: 60 });
+    expect(defaultTextureLayout({ naturalWidth: 0, naturalHeight: 0 }, spec).width).toBe(30);
   });
 
   it('reports unavailable drawing contexts instead of producing a misleading blank preview', () => {
     const canvas = { getContext: () => null };
-    expect(() => paintSurface(canvas, { image: null, text: '', font: 'Arial', spec })).toThrow('preview surface canvas');
+    expect(() => paintSurface(canvas, { text: '', font: 'Arial', spec })).toThrow('preview surface canvas');
+    expect(() => paintTextureColors(canvas, { image: null, spec })).toThrow('preview surface canvas');
     expect(() => paintEngravingMask(canvas, { text: '', font: 'Arial', spec })).toThrow('engraving mask canvas');
   });
 });
