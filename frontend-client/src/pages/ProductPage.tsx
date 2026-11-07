@@ -113,6 +113,7 @@ function ProductConfigurator({ product }: { product: Product }) {
 
       <div className="product__details" aria-label={t("Order configuration")}>
         <p className="product__price">{breakdown ? formatPrice(breakdown.unitPrice) : '—'}</p>
+        {product.catalogPricing && <p className="muted">{t("Handling fee per order")}: {formatPrice(product.catalogPricing.handlingFee)}</p>}
         <div className="product__media product__media--plates">
         {includedPlates.length === 0 ? <ProductPreview
           shape={product.shape}

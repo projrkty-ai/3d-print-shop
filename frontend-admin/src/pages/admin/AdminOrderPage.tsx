@@ -7,7 +7,10 @@ import { LoadState } from '../../components/LoadState';
 import { useProducts } from '../../store/ProductsContext';
 import { ORDER_STATUSES, type Order, type OrderStatus } from '../../types';
 import { formatPrice } from '../../utils/pricing';
+import { LogBook } from './LogBook';
+import { useLogBook } from './logBookData';
 import { OrderedTextures, OrderItemViewer } from './OrderItemViewer';
+import { OrderProcessing } from './OrderProcessing';
 import { formatDateTime, OrderStatusBadge, STATUS_LABELS } from './orderDisplay';
 import { useAdminData } from './useAdminData';
 
@@ -29,29 +32,14 @@ export function AdminOrderPage() {
 
 function OrderDetails({ order, onSaved }: { order: Order; onSaved: (order: Order) => void }) {
   const navigate = useNavigate();
-  const [status, setStatus] = useState<OrderStatus>(order.status);
-  const [adminNote, setAdminNote] = useState(order.adminNote);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const { getProduct } = useProducts();
   /** Index of the item shown in the 3D viewer. */
   const [viewing, setViewing] = useState<number | null>(null);
   const viewed = viewing === null ? undefined : order.items[viewing];
-  const dirty = status !== order.status || adminNote !== order.adminNote;
   const { customer } = order;
-
-  async function save() {
-    setBusy(true);
-    setMessage(null);
-    try {
-      onSaved(await api.updateOrder(order.id, { status, adminNote }));
-      setMessage({ kind: 'success', text: t("Order updated.") });
-    } catch (err) {
-      setMessage({ kind: 'error', text: err instanceof ApiError ? err.message : t("Could not update the order.") });
-    } finally {
-      setBusy(false);
-    }
-  }
+  const log = useLogBook('order', order.id);
 
   async function remove() {
     if (!window.confirm(t("Delete order {0}? This cannot be undone.", order.number))) return;
@@ -98,45 +86,68 @@ function OrderDetails({ order, onSaved }: { order: Order; onSaved: (order: Order
       )}
 
       <div className="order-detail__layout">
-        <section className="card">
-          <h2>{t("Items")}</h2>
-          <ul className="order-items">
-            {order.items.map((item, i) => (
-              <li key={i} className="order-item">
-                <ItemThumbnail item={item} product={getProduct(item.productId)} onOpen={() => setViewing(i)} />
-                <div className="order-item__info">
-                  <Link to={`/product/${item.productId}`} className="cart-item__name">
-                    {item.productName}
-                  </Link>
-                  <ConfigurationDetails item={item} />
-                  <OrderedTextures item={item} fileName={`${order.number}-${i + 1}`} />
-                  <details className="order-item__prices">
-                    <summary>{t("Price breakdown")}</summary>
-                    <table className="summary__lines">
-                      <tbody>
-                        {item.priceLines.map((line) => (
-                          <tr key={line.label}>
-                            <td>
-                              {line.label}
-                              {line.note && <small className="summary__note">{line.note}</small>}
-                            </td>
-                            <td>{formatPrice(line.amount)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </details>
-                </div>
-                <div className="order-item__total">
-                  {item.quantity} × {formatPrice(item.unitPrice)}
-                  <strong>{formatPrice(item.lineTotal)}</strong>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <div className="order-detail__total">{t("Total")} <strong>{formatPrice(order.total)}</strong>
-          </div>
-        </section>
+        <div>
+          <section className="card">
+            <h2>{t("Items")}</h2>
+            <ul className="order-items">
+              {order.items.map((item, i) => (
+                <li key={i} className="order-item">
+                  <ItemThumbnail item={item} product={getProduct(item.productId)} onOpen={() => setViewing(i)} />
+                  <div className="order-item__info">
+                    <Link to={`/product/${item.productId}`} className="cart-item__name">
+                      {item.productName}
+                    </Link>
+                    <ConfigurationDetails item={item} />
+                    <OrderedTextures item={item} fileName={`${order.number}-${i + 1}`} />
+                    <details className="order-item__prices">
+                      <summary>{t("Price breakdown")}</summary>
+                      <table className="summary__lines">
+                        <tbody>
+                          {item.priceLines.map((line) => (
+                            <tr key={line.label}>
+                              <td>
+                                {line.label}
+                                {line.note && <small className="summary__note">{line.note}</small>}
+                              </td>
+                              <td>{formatPrice(line.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </details>
+                  </div>
+                  <div className="order-item__total">
+                    {item.quantity} × {formatPrice(item.unitPrice)}
+                    <strong>{formatPrice(item.lineTotal)}</strong>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {order.handlingFee !== undefined && <p className="muted">{t("Handling fee per order")}: {formatPrice(order.handlingFee)}</p>}
+            <div className="order-detail__total">{t("Total")} <strong>{formatPrice(order.total)}</strong>
+            </div>
+          </section>
+
+          <OrderProcessing
+            kind="order"
+            orderId={order.id}
+            customerEmail={customer.email}
+            savedStatus={order.status}
+            statuses={ORDER_STATUSES}
+            statusLabels={STATUS_LABELS}
+            savedAdminNote={order.adminNote}
+            onSave={async ({ status, ...changes }) => onSaved(await api.updateOrder(order.id, { status: status as OrderStatus, ...changes }))}
+            onLogChanged={log.reload}
+          />
+          <LogBook
+            kind="order"
+            orderId={order.id}
+            orderNumber={order.number}
+            state={log.state}
+            statusLabels={STATUS_LABELS}
+            onReload={log.reload}
+          />
+        </div>
 
         <aside>
           <section className="card">
@@ -172,33 +183,6 @@ function OrderDetails({ order, onSaved }: { order: Order; onSaved: (order: Order
                 <p className="order-detail__note">{order.customerNote}</p>
               </>
             )}
-          </section>
-
-          <section className="card">
-            <h2>{t("Fulfilment")}</h2>
-            <label className="field">
-              <span>{t("Status")}</span>
-              <select value={status} onChange={(e) => setStatus(e.target.value as OrderStatus)}>
-                {ORDER_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>{t("Internal note")}</span>
-              <textarea
-                rows={4}
-                value={adminNote}
-                onChange={(e) => setAdminNote(e.target.value)}
-                placeholder={t("Tracking number, print notes… (not shown to the customer)")}
-                maxLength={5000}
-              />
-            </label>
-            <button type="button" className="btn btn--primary" onClick={() => void save()} disabled={!dirty || busy}>
-              {busy ? t("Saving…") : t("Save changes")}
-            </button>
           </section>
         </aside>
       </div>

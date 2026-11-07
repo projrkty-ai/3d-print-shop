@@ -40,6 +40,51 @@ remain unchanged. Never configure an admin secret in this application.
 
 ## Customer features
 
+- Model search bar at the top of every page (sticky header): searches Thingiverse, Printables
+  and MakerWorld through the backend's `GET /model-search` and opens `/search?q=…`. All
+  results share one card: thumbnail, site badge, title, author, plain-text description and
+  a link that opens the original posting on its site in a new tab. A line above the results
+  shows each site's result count, or that it is unavailable/not configured, with a link to
+  the same search on that site. The count is the site's total number of matches (with the
+  locale's digit grouping), or the loaded count with "+" when a site reports no total.
+  The license note ("check each model's license") is shown above the results. **Load more
+  results** below the grid appends the next page from every site that has more (the backend's
+  `nextCursor`) and disappears at the end; a failed load keeps the loaded results and can be
+  retried, and a site that fails midway is marked "couldn't load more". Thumbnails load from
+  the sites' image servers without a referrer and fall back to a placeholder.
+- Ordering a found project happens in two steps.
+  1. A sticky **Order a project** box on the right of the results (below them on narrow
+     screens) previews the last clicked result, or a pasted link to a model page on any of the
+     three sites (`GET /model-search/project`): thumbnail, title, author, license, number of
+     models and a link to the original page. After an order is sent, its confirmation is shown
+     there until another project is clicked, which replaces it.
+  2. **Order this project…** opens a dialog with every model of the project (all selected by
+     default, with select all/none) and print settings: quantity, scale and one or more
+     material + color rows per model (add/remove rows for multi-color or multi-material
+     prints; colors are free text with common suggestions). **Use one selection for all
+     models** (on by default) shows one settings editor for every selected model; turning it
+     off gives each model its own editor, starting from the shared selection. Notes and the
+     customer's contact/delivery details complete the order (`POST /project-orders`). Sites
+     that list no models get one whole-project item. The dialog closes with Escape, the Close
+     button or a click outside it, and returns focus to the order button.
+
+- `/ready-to-print` (**Ready to print** in the header): projects the shop has reviewed, shown
+  with the same cards as search results plus their printing price, which the server calculates
+  from the product's print time and filament with the shop's current rates
+  (`GET /project-products`). The box on the right previews the last clicked one with its price;
+  **Order for …** opens a dialog listing the models (quantity and scale fixed) with a material
+  and color for each filament, a number of sets with a live total (handling fee once + sets × set
+  price), notes and contact/delivery details (`POST /project-products/:id/orders`). Colors can
+  be changed freely at the same price. Changing a material marks it, replaces the total with
+  "Quote needed" and sends the order as a request for a quote ("Use the offered materials"
+  restores them, keeping the colors). The confirmation says whether the price is fixed or a
+  quote follows, and stays until another project is clicked. Both order dialogs share one modal component (portal, Escape/backdrop to close,
+  focus on open and back to the order button on close).
+
+  The chosen project, models, settings and notes are kept in `printforge.projectOrder` in
+  localStorage across searches and reloads (drafts from the previous version are upgraded);
+  contact details last only for the visit. No payment is taken: the shop reviews the request
+  and quotes by email.
 - `/`: catalog with actual STL/3MF thumbnails. Product photos take precedence.
   Thumbnails are lazy-loaded, cached and generated with one short-lived off-screen renderer.
 - `/product/:id`: live model previews, proportional size controls (5–270 mm per side),
@@ -66,6 +111,45 @@ remain unchanged. Never configure an admin secret in this application.
   summary names the chosen shop textures. Switching to a shop texture and back restores
   the last uploaded picture during the visit. Products without shop textures show the
   original upload field only.
+- `/print-your-model` (**Print your model** in the navigation): print request for the
+  customer's own models, in two steps.
+
+  **1. Upload files**: drop or browse up to 10 STL/3MF files (50 MB each). Each file is read
+  in the browser first: other types, empty, oversized, duplicate, unreadable files and files
+  whose contents contradict their extension are listed as not added. Accepted files show a
+  rendered miniature, size, dimensions and volume (a multi-plate slicer project is measured and
+  shown as the whole set of its plates), a warning when larger than the 270 mm build volume,
+  and a copies field (1–20).
+
+  Each model then gets print options from the shop's offer (`/api/print-settings`; if it can't
+  load, a retry is offered and the summary is blocked): a **nozzle** diameter and a **layer
+  height** (the shop's defaults are preselected). Only layer heights from a quarter to 0.8 × the
+  chosen nozzle's diameter are offered, and the allowed range is explained; choosing another
+  nozzle keeps the layer height when it still fits, otherwise picks the closest one that does.
+  For each color of the model the customer chooses a **filament type** (name and description)
+  and a **color** from those the shop stocks for it. Single-color files have
+  one filament choice; multi-color 3MF files list every color part with its color in the file,
+  preselected with the nearest stocked color. Changing the filament keeps the color when
+  offered, otherwise picks the most similar one. Each model shows only its estimated price per
+  copy (and for all copies) — customers never see weights or prices per kilogram. The estimate
+  is the solid volume, split between the parts by surface area, × density × the filament's
+  price per kilogram × the nozzle's and layer height's multipliers. The miniature is redrawn in the
+  chosen colors (files over 20 MB keep the first miniature).
+
+  Clicking a model's miniature or description (in either step) opens an interactive 3D preview
+  in the chosen colors, with its details, options and estimate; it reads the file on the
+  customer's device, nothing is uploaded before confirming. Escape, **Close** or clicking
+  outside closes it. Optional printing instructions apply to the whole request.
+
+  **2. Summary and confirmation**: the files with their options, copies and estimates, total
+  prints, the instructions and the estimated total price (the shop confirms the final price), plus contact and delivery details (the same fields as checkout). **Confirm order**
+  uploads the files one by one with progress, then records the request; nothing is paid. Files
+  already accepted are not uploaded again when retrying after an error, and uploads the server
+  no longer accepts (after 23 hours) are re-sent automatically. If the shop withdrew a chosen
+  option meanwhile, the error is shown and the current options are reloaded. The confirmation
+  shows the `CP-…` request number. Chosen files, options, copies, instructions and contact
+  details stay while visiting other pages of the shop (files can't be kept in browser storage,
+  so a reload starts over). three.js loads only once a file is picked.
 - `/cart`: persistent cart and checkout. The backend recalculates the current prices.
   Items show their texture (shop texture name or custom picture). If the shop withdraws a
   chosen texture, the cart says so and links back to the product; checkout rejects it.
@@ -94,9 +178,27 @@ malformed painting produces a visible error. PrusaSlicer-specific palettes and m
 beds are not supported.
 
 Each administrator-selected plate has its own preview and appearance controls. Dimensions
-and proportional scale cover the whole set. The base price/fixed fee are for the set;
+and proportional scale cover the whole set. Dynamic printing prices are for the set;
 premium filament is charged once per filament, and engraving/colored engraving/texture
 fees once per set. Cart details retain each plate's appearance.
+
+## Dynamic catalog pricing
+
+Catalog prices use the current shop-wide Pricing rates. Estimated filament weight is model
+volume × 1.3 g/cm³ × 30%, and estimated print time is weight ÷ 20 g/hour. Both scale with
+the volume ratio when dimensions change. The item price is estimated print time × hourly
+rate + weight / 1000 × the material's per-kilogram rate, plus existing color/engraving/texture
+surcharges. Recognized materials are PLA (including PLA+), PETG, ABS, ASA, TPU and resin;
+unrecognized product material names use PLA.
+
+Product prices exclude the handling fee, which is shown separately and added once to the
+whole cart/order, regardless of quantities or number of lines. Catalog reads carry current
+API-derived rates; visible pages refresh every 15 seconds and on window focus, updating
+product prices and existing cart entries without resetting customer drafts or rewriting
+legacy cart storage. Failed refreshes show the load error/retry UI. Checkout recalculates
+from current server rates and explains any last-moment price change. Placed orders retain
+their snapshots, including their handling fee. Legacy product `basePrice`/`fixedFee` values
+are used only for older responses without dynamic rates.
 
 Administrator-owned text anchors/alignment and texture centers/sizes apply automatically
 to these previews. Without settings, text is centered and the picture appears once on the

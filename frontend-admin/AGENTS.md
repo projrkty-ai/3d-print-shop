@@ -63,6 +63,12 @@ must never contain `ADMIN_TOKEN`; the key is entered by the administrator at sig
 
 ## Authentication and data safety
 
+The admin tabs include catalog orders, custom print requests, email templates,
+external project orders, ready-to-print products and pricing. Print options share the Pricing
+tab and the old print-options route redirects there. Preserve all routes
+and active-tab states. Catalog/custom-request email processing stays separate from project
+order review; do not silently apply one flow's statuses or settings to the other.
+
 - `/` redirects to `/admin`; `/product/:productId` previews remain behind `AdminLayout`.
   Never send the admin token to the shop via URL/query string, external link or build
   variable. Preserve the existing tab-scoped `printforge.adminToken` sessionStorage key.

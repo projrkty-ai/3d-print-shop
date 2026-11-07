@@ -32,8 +32,13 @@ checks ports 3001/5173/5174, starts the API, waits until it answers, then starts
 frontends. Output is labelled `[api]`, `[shop]` and `[admin]`; the summary shows the URLs
 and the admin key. Ctrl+C stops everything, and if one application exits the others stop
 too. The script only runs each application's own `npm run dev`; it is not a root npm
-project and adds no dependencies. Delete `backend/data/` to start again with a fresh
-catalog.
+project and adds no dependencies. On Windows, the application processes run separately
+from the launcher's console so Ctrl+C can stop their complete process trees. If shutdown
+fails, the launcher reports the affected process rather than silently ignoring it.
+Run `node --test scripts/start-local.test.mjs` to check launcher shutdown with isolated
+fixture applications. Delete `backend/data/` to start again with a fresh
+catalog. Without SMTP settings, emails the admin sends to customers are saved as .eml files in
+`backend/data/outbox/` (see the backend README to configure real delivery).
 
 To run the applications separately instead, use one terminal per application:
 
@@ -97,5 +102,16 @@ local preview (customer port 4173, admin port 4174).
   and `/models` to the backend. Development and preview servers already do this using
   their own `API_PROXY_TARGET`.
 - Never put `ADMIN_TOKEN` in any `VITE_*` variable: frontend environment values are public.
+- The storefront's model search (Thingiverse, Printables, MakerWorld) runs through the backend;
+  set `THINGIVERSE_TOKEN` there to include Thingiverse. See `backend/README.md`.
 
 Feature and API details are documented separately in each application's README.
+
+The storefront supports catalog customization, customers' own STL/3MF print requests,
+external model search and ready-to-print projects. Administration retains print options,
+email templates and catalog/custom-request log books alongside project orders and pricing.
+Custom requests and external project orders keep separate statuses, references and settings;
+project orders do not inherit the catalog/custom-request email workflow.
+The backend upgrades databases from either feature version without reseeding existing data.
+Back up the SQLite file with the server stopped before deploying: schema 4 cannot be
+opened by older backend versions.

@@ -25,6 +25,8 @@ const analysis: MeshAnalysis = {
 vi.mock('../../store/ProductsContext', () => ({
   useProducts: () => ({ getProduct: () => product, load: { status: 'ready' }, updateProduct, createProduct }),
 }));
+const auth = vi.hoisted(() => ({ signOut: () => undefined }));
+vi.mock('../../store/AdminAuthContext', () => ({ useAdminAuth: () => auth }));
 vi.mock('../../components/LazyProductPreview', () => ({
   LazyProductPreview: (props: ComponentProps<typeof ProductPreview>) => (
     <div data-preview={props.meshPlate ?? 'root'} data-plates={JSON.stringify(props.meshPlates)} data-layout={JSON.stringify(props.decorationLayout)}
@@ -100,6 +102,10 @@ beforeEach(() => {
   updateProduct.mockClear();
   createProduct.mockClear();
   product = createSeedProducts()[0];
+  vi.spyOn(api, 'getCatalogPricing').mockResolvedValue({
+    ratesPerCm3: { PLA: 0.04875, PETG: 0.04992, ABS: 0.04914, ASA: 0.05148, TPU: 0.0546, resin: 0.0624 },
+    handlingFee: 5, updatedAt: null,
+  });
   product.engraving.enabled = true;
   product.texture.enabled = true;
   product.mesh = {
@@ -519,4 +525,3 @@ describe('3D lettering editor', () => {
     expect(container.textContent).toContain('3D lettering suggested text:');
   });
 });
-

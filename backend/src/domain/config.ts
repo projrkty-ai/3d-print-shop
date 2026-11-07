@@ -51,3 +51,6 @@ export const EXTRUDED_DEPTH_MM = { min: 0.2, max: 20 } as const;
 export const EXTRUDED_LINE_SPACING = { min: 0.8, max: 3 } as const;
 
 export const MAX_QUANTITY = 20;
+
+/** Most model files a customer can send in one print request. */
+export const CUSTOM_ORDER_MAX_FILES = 10;

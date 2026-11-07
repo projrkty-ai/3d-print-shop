@@ -50,3 +50,12 @@ export const EXTRUDED_DEPTH_MM = { min: 0.2, max: 20 } as const;
 export const EXTRUDED_LINE_SPACING = { min: 0.8, max: 3 } as const;
 
 export const MAX_QUANTITY = 20;
+
+/** Most model files a customer can send in one print request (the API enforces the same limit). */
+export const CUSTOM_ORDER_MAX_FILES = 10;
+/** Larger customer models keep their first thumbnail: re-reading them for every color change would be slow. */
+export const RECOLOR_MAX_BYTES = 20 * 1024 * 1024;
+/** Color of customer models in their thumbnails (their files carry no filament choice). */
+export const CUSTOM_MODEL_COLOR = '#9aa6b8';
+/** Search query length accepted by `GET /model-search`. */
+export const MODEL_SEARCH_QUERY = { min: 2, max: 100 } as const;

@@ -117,9 +117,10 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
     expect(body.items[0].productName).toBe(product.name);
     expect(body.items[0].colorName).toBe('Original Color');
     expect(body.items[0].priceLines[0].label).toMatch(new RegExp(`^${expected.print}`));
-    expect(body.items[0].priceLines[0].note).toContain(expected.fixedFee);
+    expect(body.items[0].priceLines[0].note).not.toContain(expected.fixedFee);
     expect(body.items[0].priceLines[1]).toEqual({ label: `${expected.color}Original Color`, amount: 3 });
-    expect(body.total).toBe(35);
+    expect(body.total).toBe(12.63);
+    expect(body.handlingFee).toBe(5);
     const stored = await db.orders.get(body.id);
     expect(stored?.items[0].priceLines).toEqual(body.items[0].priceLines);
     vi.stubEnv('APP_LANGUAGE', language === 'pl' ? 'en' : 'pl');

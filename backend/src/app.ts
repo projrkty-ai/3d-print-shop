@@ -5,18 +5,31 @@ import { adminAuth } from './auth';
 import { t } from './i18n';
 import type { Storage } from './storage';
 import { errorHandler, HttpError, notFound } from './http';
+import { createMailer, type Mailer } from './mail/mailer';
+import { customOrdersRouter } from './routes/customOrders';
+import { emailTemplatesRouter } from './routes/emailTemplates';
 import { modelFilesRouter } from './routes/modelFiles';
 import { ordersRouter } from './routes/orders';
+import { printSettingsRouter } from './routes/printSettings';
 import { productsRouter } from './routes/products';
 import { mediaFilesRouter } from './routes/mediaFiles';
+import { modelSearchRouter } from './routes/modelSearch';
+import { projectOrdersRouter } from './routes/projectOrders';
+import { projectProductsRouter } from './routes/projectProducts';
+import { settingsRouter } from './routes/settings';
+import { modelSearchFromEnv, type ModelSearch } from './modelSearch';
 
 interface AppOptions {
   db: Storage;
   adminToken: string;
   allowedOrigins?: string[];
+  /** Sends emails to customers; without one, sending is reported as not configured. */
+  mailer?: Mailer;
+  /** External model search; defaults to the sources configured in the environment. */
+  modelSearch?: ModelSearch;
 }
 
-export function createApp({ db, adminToken, allowedOrigins = [] }: AppOptions) {
+export function createApp({ db, adminToken, allowedOrigins = [], mailer = createMailer({ from: 'PrintForge <no-reply@localhost>' }), modelSearch = modelSearchFromEnv() }: AppOptions) {
   const app = express();
   app.disable('x-powered-by');
   const auth = adminAuth(adminToken);
@@ -41,9 +54,16 @@ export function createApp({ db, adminToken, allowedOrigins = [] }: AppOptions) {
     res.status(204).end();
   });
   api.use('/products', productsRouter(db, auth));
-  api.use('/orders', ordersRouter(db, auth));
+  api.use('/orders', ordersRouter(db, mailer, auth));
+  api.use('/custom-orders', customOrdersRouter(db, mailer, auth));
+  api.use('/email-templates', emailTemplatesRouter(db, mailer, auth));
+  api.use('/print-settings', printSettingsRouter(db, auth));
   api.use('/model-files', modelFilesRouter(db, auth));
   api.use('/media-files', mediaFilesRouter(db, auth));
+  api.use('/model-search', modelSearchRouter(modelSearch));
+  api.use('/project-orders', projectOrdersRouter(db, modelSearch, auth));
+  api.use('/project-products', projectProductsRouter(db, auth));
+  api.use('/settings', settingsRouter(db, auth));
   api.use(() => {
     throw notFound('Endpoint');
   });

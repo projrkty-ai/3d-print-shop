@@ -13,10 +13,12 @@ export class HttpError extends Error {
   }
 }
 
-export const notFound = (what: 'Endpoint' | 'Product' | 'Order' | 'Model file' | 'Image') => {
+export const notFound = (what: 'Endpoint' | 'Product' | 'Order' | 'Custom order' | 'Project order' | 'Project product' | 'Model file' | 'Image' | 'Log entry') => {
   const messages = {
     Endpoint: 'endpointNotFound', Product: 'productNotFound', Order: 'orderNotFound',
-    'Model file': 'modelNotFound', Image: 'imageNotFound',
+    'Custom order': 'customOrderNotFound', 'Project order': 'projectOrderNotFound',
+    'Project product': 'projectProductNotFound', 'Model file': 'modelNotFound',
+    Image: 'imageNotFound', 'Log entry': 'logEntryNotFound',
   } as const;
   return new HttpError(404, t(messages[what]));
 };

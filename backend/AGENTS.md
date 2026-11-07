@@ -67,6 +67,13 @@ exercise Polish and invalid configuration.
 Keep handlers focused on HTTP/auth/persistence. Reuse local domain helpers for business
 rules instead of creating a second pricing or normalization path.
 
+Custom requests (`routes/customOrders.ts`), print options, email templates and log books
+coexist with external model search, project orders, ready-to-print products and project
+pricing. Keep their HTTP contracts and status sets distinct. Settings use separate keys
+(`printSettings`, `emailTemplates`, `pricing`); SQLite schema 4 and MongoDB preparation
+preserve settings from both legacy feature versions. Cover migrations and independent
+settings in `src/storage/storage.test.ts` against both stores.
+
 ## Rules that must remain true
 
 - Parse untrusted input with Zod, then apply business validation. Keep the compile-time

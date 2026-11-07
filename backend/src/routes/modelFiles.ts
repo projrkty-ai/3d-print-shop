@@ -12,7 +12,7 @@ function looksLikeModelFile(data: Buffer): boolean {
 }
 
 /** The browser URL-encodes the name (HTTP headers can't carry e.g. "ł"); keep letters, digits and a few separators. */
-function decodeFileName(header: string | undefined): string {
+export function decodeFileName(header: string | undefined): string {
   let name = header ?? '';
   try {
     name = decodeURIComponent(name);

@@ -4,6 +4,7 @@ import { formatDimensions, formatVolume, minUniformScale, scaleDimensions, scale
 import { includedProductPlates, plateParts, selectedPlateIds } from './meshPlates';
 import { customizationSurfaces, textureOption } from './customization';
 import { t } from '../../i18n';
+import { PRINT_MATERIALS, type CatalogPricing, type PricingSettings, type PrintMaterial } from '../types';
 
 export type { PriceLine };
 
@@ -14,23 +15,41 @@ export interface PriceBreakdown {
 
 const roundCents = (value: number) => Math.round(value * 100) / 100;
 
+/** Estimates: 1.3 g/cm³ density, 30% printed volume, 20 g/hour throughput. */
+export function catalogPricing(settings: PricingSettings): CatalogPricing {
+  const gramsPerCm3 = 1.3 * 0.3;
+  return {
+    ratesPerCm3: Object.fromEntries(PRINT_MATERIALS.map((material) => [
+      material, gramsPerCm3 / 20 * settings.hourlyRate + gramsPerCm3 / 1000 * settings.filamentPricePerKg[material],
+    ])) as CatalogPricing['ratesPerCm3'],
+    handlingFee: settings.handlingFee,
+    updatedAt: settings.updatedAt,
+  };
+}
+
+/** Free-text names like "PLA+ (multi-color)" map to standard materials; unknown names use PLA. */
+export function catalogMaterial(name: string): PrintMaterial {
+  return PRINT_MATERIALS.find((material) => new RegExp(`\\b${material}\\b`, 'i').test(name)) ?? 'PLA';
+}
+
 /**
- * Material rate: the part of the original-size price not covered by the fixed fee,
- * spread over the base model's volume. This keeps the original size at exactly the base price.
+ * Current catalog rate, or the legacy base price minus fixed fee divided by original volume.
  */
 export function pricePerCm3(product: Product): number {
+  if (product.catalogPricing) return product.catalogPricing.ratesPerCm3[catalogMaterial(product.material)];
   return (product.basePrice - product.fixedFee) / product.model.volumeCm3;
 }
 
 export interface SizePrice {
   volumeCm3: number;
-  /** Fixed fee + material, rounded to cents. */
+  /** Rounded print price, excluding order handling for dynamic catalog products. */
   amount: number;
 }
 
-/** Price of the bare print at the given size: fixed fee + material volume × rate. */
+/** Bare print at the selected volume; only legacy products include a per-print fixed fee. */
 export function sizePrice(product: Product, dims: Dimensions): SizePrice {
   const volumeCm3 = scaledVolumeCm3(product.model, dims);
+  if (product.catalogPricing) return { volumeCm3, amount: roundCents(volumeCm3 * pricePerCm3(product)) };
   // Same as volume × pricePerCm3, but dividing last keeps exact cases (e.g. 50% → $8.375) exact.
   const material = ((product.basePrice - product.fixedFee) * volumeCm3) / product.model.volumeCm3;
   return { volumeCm3, amount: roundCents(product.fixedFee + material) };
@@ -39,7 +58,7 @@ export function sizePrice(product: Product, dims: Dimensions): SizePrice {
 /** Explains a print price, e.g. "$5.00 fixed fee + 11.9 cm³ × $0.284/cm³". */
 export function describeSizePrice(product: Product, price: SizePrice): string {
   const material = `${formatVolume(price.volumeCm3)} × ${formatRate(pricePerCm3(product))}`;
-  return product.fixedFee > 0 ? t('fixedPrice', formatPrice(product.fixedFee), material) : material;
+  return !product.catalogPricing && product.fixedFee > 0 ? t('fixedPrice', formatPrice(product.fixedFee), material) : material;
 }
 
 /** Expects dimensions that already passed `validateDimensions`. */

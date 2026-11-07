@@ -30,6 +30,7 @@ import { decorationLayoutFor, defaultExtrudedTextLayout } from '../../utils/deco
 import { DecorationLayoutEditor } from './DecorationLayoutEditor';
 import { TextureLibraryEditor } from './TextureLibraryEditor';
 import { LazyDescriptionEditor as DescriptionEditor } from '../../components/LazyDescriptionEditor';
+import { useAdminData } from './useAdminData';
 
 const SAMPLE_TEXTURE = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="white"/><path d="M0 0h128v128H0zM128 128h128v128H128z" fill="#555"/><circle cx="128" cy="128" r="70" fill="none" stroke="black" stroke-width="12"/></svg>')}`;
 
@@ -68,11 +69,17 @@ export function ProductEditorPage() {
   const { productId } = useParams();
   const { getProduct, load, reload } = useProducts();
 
-  if (!productId) return <ProductEditor key="new" initial={createEmptyProduct()} isNew />;
+  if (!productId) return <NewProductEditor />;
   if (load.status !== 'ready') return <LoadState load={load} onRetry={() => void reload()} loadingText={t("Loading product…")} />;
   const product = getProduct(productId);
   if (!product) return <NotFoundPage message={t("That product doesn't exist.")} />;
   return <ProductEditor key={product.id} initial={product} isNew={false} />;
+}
+
+function NewProductEditor() {
+  const { state, reload } = useAdminData(() => api.getCatalogPricing(), []);
+  if (state.status !== 'ready') return <LoadState load={state} onRetry={reload} loadingText={t("Loading pricing…")} />;
+  return <ProductEditor initial={{ ...createEmptyProduct(), catalogPricing: state.data }} isNew />;
 }
 
 /** Number input that keeps NaN while the field is empty so validation can flag it. */
@@ -446,7 +453,9 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
 
           <section className="card">
             <h2>{t("Base model & pricing")}</h2>
-            <p className="muted card__intro">{t("Customers choose any print size in millimeters (")}{PRINT_MIN_MM}–{PRINT_MAX_MM} {t("mm per side). Every print costs the fixed fee plus a price per cm³ of material; the rate is set so the original size costs exactly the price you enter: (price at original size − fixed fee) ÷ model volume.")}</p>
+            <p className="muted card__intro">{draft.catalogPricing
+              ? t("Catalog prices use the current Pricing rates: estimated weight = volume × 1.3 g/cm³ × 30%; estimated print time = weight ÷ 20 g/hour. Handling is charged once per order.")
+              : <>{t("Customers choose any print size in millimeters (")}{PRINT_MIN_MM}–{PRINT_MAX_MM} {t("mm per side). Every print costs the fixed fee plus a price per cm³ of material; the rate is set so the original size costs exactly the price you enter: (price at original size − fixed fee) ÷ model volume.")}</>}</p>
             <div className="form-grid form-grid--4">
               {AXES.map((axis) => (
                 <Field key={axis} label={`${AXIS_LABELS[axis]} (mm)`}>
@@ -468,18 +477,19 @@ function ProductEditor({ initial, isNew }: { initial: Product; isNew: boolean })
                 />
               </Field>
             </div>
+            {draft.catalogPricing && <p className="muted">{t("Legacy prices (not used for current catalog orders)")}</p>}
             <div className="form-grid">
               <Field label={t("Price at original size")}>
-                <NumberInput min={0} step={0.5} value={draft.basePrice} onChange={(v) => set('basePrice', v)} />
+                <NumberInput min={0} step={0.5} value={draft.basePrice} disabled={Boolean(draft.catalogPricing)} onChange={(v) => set('basePrice', v)} />
               </Field>
               <Field label={t("Fixed fee per print")} hint={t("Setup, machine time and handling — charged at every size.")}>
-                <NumberInput min={0} step={0.5} value={draft.fixedFee} onChange={(v) => set('fixedFee', v)} />
+                <NumberInput min={0} step={0.5} value={draft.fixedFee} disabled={Boolean(draft.catalogPricing)} onChange={(v) => set('fixedFee', v)} />
               </Field>
             </div>
             {pricingReady ? (
               <div className="table-wrap">
                 <table className="option-table price-examples">
-                  <caption>{t("Example prices:")} {formatPrice(draft.fixedFee)} {t("fee +")} {formatRate(pricePerCm3(draft))} {t("(before color, engraving and texture)")}</caption>
+                  <caption>{t("Example prices:")} {!draft.catalogPricing && <>{formatPrice(draft.fixedFee)} {t("fee +")} </>}{formatRate(pricePerCm3(draft))} {t("(before color, engraving and texture)")}</caption>
                   <thead>
                     <tr>
                       <th>{t("Scale")}</th>

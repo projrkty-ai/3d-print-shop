@@ -1,5 +1,7 @@
 import { resolve } from 'node:path';
 import { createSeedProducts } from '../domain/data/seedProducts';
+import { createSeedEmailTemplates, TEMPLATE_KEYS } from '../domain/emailTemplates';
+import { createSeedPrintSettings, upgradePrintSettings } from '../domain/printSettings';
 import { FILE_ID, type Storage } from './types';
 
 export * from './types';
@@ -56,6 +58,31 @@ export async function seedProducts(storage: Storage, { reset = false } = {}): Pr
   await storage.products.insertMany(seed);
   if (reset) await pruneModelFiles(storage);
   return seed.length;
+}
+
+/**
+ * Stores the example nozzles, layer heights and filaments when none exist yet (or replaces them
+ * when `reset`), and converts options saved in the first format (qualities, prices per gram).
+ * Returns whether it wrote anything.
+ */
+export async function seedPrintSettings(storage: Storage, { reset = false } = {}): Promise<boolean> {
+  const stored = reset ? null : await storage.printSettings.get();
+  const current = upgradePrintSettings(stored);
+  if (current && current === stored) return false;
+  await storage.printSettings.put(current ?? createSeedPrintSettings());
+  return true;
+}
+
+/**
+ * Stores the default email templates (in APP_LANGUAGE) when none exist, or when `reset`. Templates
+ * added by a newer version (e.g. a new status) are filled in from the defaults; edited ones are kept.
+ */
+export async function seedEmailTemplates(storage: Storage, { reset = false } = {}): Promise<boolean> {
+  const stored = reset ? null : await storage.emailTemplates.get();
+  const seed = createSeedEmailTemplates();
+  if (stored && TEMPLATE_KEYS.every((key) => stored.templates[key])) return false;
+  await storage.emailTemplates.put(stored ? { ...stored, templates: { ...seed.templates, ...stored.templates } } : seed);
+  return true;
 }
 
 /** Uploaded model files are served from here; product meshes point at these URLs. */

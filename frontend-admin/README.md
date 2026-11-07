@@ -56,11 +56,20 @@ unchanged save payloads/HTML. Run `npm test` and `npm run build` after adding tr
 ## Products and previews
 
 Product list: search, real model thumbnails, publish toggle, duplication and deletion.
-Editor: metadata/photo, original dimensions and solid volume, base price/fixed fee,
+Editor: metadata/photo, original dimensions and solid volume, dynamically estimated prices,
 filament options, engraving limits/fonts/text colors and picture-texture fee. STL/3MF
 uploads populate model measurements. Selected Bambu/Orca plates are sold as one set,
 with separate appearances and one customer scale. Switching selected plates preserves
 their layout; replacing the model clears old plate layouts.
+
+Catalog prices use Pricing's hourly and material rates: estimated weight is model volume
+× 1.3 g/cm³ × 30%; estimated print time is weight ÷ 20 g/hour. Both scale with volume.
+Handling is charged once per order, not per item or set. Product material names map to
+PLA (including PLA+), PETG, ABS, ASA, TPU or resin; unrecognized names use PLA.
+The product list, editor examples and previews show dynamic print prices before handling
+and customization surcharges. Legacy base price/fixed fee are retained, shown read-only,
+and do not affect current orders. Derived rates are excluded from product save payloads.
+New products load current rates even when the catalog is empty.
 
 **Save product** saves without leaving the editor and shows a confirmation. For a new
 product, it opens that product's edit URL so later saves update it instead of creating
@@ -146,11 +155,85 @@ Product preview links open `/product/:id` **inside this admin application**, beh
 admin sign-in, including unpublished products. The local preview offers per-plate
 appearance and shared scale controls without customer cart or order submission.
 
+## Pricing and print options
+
+**Pricing** (`/admin/pricing`) contains the rates for project orders and the print options
+for customers' own models. Each section loads and saves independently. The old
+`/admin/print-options` address redirects to Pricing.
+
+**Print options** edits what customers choose from for prints of
+their own models. **Nozzle diameters**: diameter, price multiplier (smaller nozzles print
+slower) and the default; each row shows the layer heights it can print — from a quarter to
+0.8 × its diameter — or warns when none fits. **Layer heights**: height, price multiplier
+(thinner layers take longer) and the default; each row shows which nozzles can print it. A
+warning appears when the default layer height doesn't suit the default nozzle; the server
+rejects such settings and nozzles without a usable layer height. **Filament types**: name,
+description for customers, price per kilogram (USD), density (g/cm³, converts volume to
+weight) and the colors in stock (color picker, name, hex code). Each filament shows what a
+100 cm³ model costs in it with the default nozzle and layer height. Customers see only prices;
+the admin also sees estimated weights on print requests. New entries get ids from their names when saved. **Save changes** replaces
+all options at once after the server's checks (problems are listed; edits are kept);
+**Discard changes** reverts. New requests use the saved options; placed requests keep the
+names and prices they were ordered with. The backend seeds example qualities and filaments.
+
+## Print requests
+
+**Print requests** (`/admin/custom-orders`) lists customers' requests to print their own
+STL/3MF files: number, submission time, customer, files with total prints, quote and status,
+with search (number, name, email, file name) and status filtering. New requests are
+**Awaiting review**. A request shows its files, the customer's printing instructions, contact
+and delivery details. Files are private: opening a request downloads them with the admin key,
+one at a time, and reads them in the browser. Each model then shows a rendered miniature with
+its chosen nozzle, layer height, and filament type and color per color part,
+its format, file size, dimensions, volume and triangle count (plus plate count for slicer
+projects, and a warning when larger than the 270 mm build volume) next to its copies.
+Miniatures and the 3D view show the model in the ordered filament colors. Each file also shows
+an estimate from the ordered prices and the shop's own reading of the file (the same formula
+the customer saw), and **Order processing** totals it with **Use estimate** to copy it into
+the quoted price. Requests placed before print options existed show no options or estimate.
+Clicking the miniature or description opens the model in 3D (slicer projects with all plates)
+with the same details and whether it fits the build volume; files that can't be read say why
+and don't open. **Download** saves the original file as `<request number>-<file name>`, reusing
+the copy already downloaded; downloads are released when the page closes. The page has the
+models, **Order processing** and the **Log book** (see below) on the left, and the customer's
+printing instructions and contact details on the right. Order processing sets the status
+(Awaiting review, Approved, Rejected, Printing, Shipped, Delivered, Cancelled), the quoted price
+(empty = not quoted) and an internal note. Deleting a request also deletes its files and log
+book.
+
+## Order processing, log book and emails
+
+Catalog orders and print requests share the same panels below their items or models:
+
+**Order processing**: the status, the internal note (and for print requests the quoted price).
+When the status changes, **Email the customer about this change** (on by default) sends the
+status template with an optional **Message for the customer** (its `{{note}}`); a live preview
+shows the recipient, subject and text exactly as the server renders them. Templates can
+require values: the message is marked required for cancelling or rejecting, and approving a
+print request needs a quoted price — the missing values are listed and saving waits for them.
+**Save and send email** saves and reports whether the email was sent, saved to the
+development outbox or not delivered (the status change is kept either way). **Message the
+customer** sends your own email: start from a blank message or from any status template,
+edit subject and text, then **Send email**; a failed delivery keeps the text for another try.
+A note says when the server saves emails to its outbox (development) or can't send email.
+
+**Log book**: newest first — the status an order was placed with, every status change, every
+email sent (automated with its status, or your own message; with delivery state and error) and
+imported emails. **Import email (.eml)** adds emails saved from your mail program (one or
+several files), e.g. the customer's replies: sender, recipients, date, subject, text and
+attachment names are shown, **Download .eml** saves the original, an email already in the log is
+refused, and senders other than the customer's address are flagged.
+
+**Email templates** (`/admin/email-templates`): the email for each status of orders and print
+requests. Each editor lists its variables — click one to insert it at the cursor; required ones
+are highlighted and must stay in the template — and reports unknown or missing variables before
+saving. **Restore default** brings back the shipped text; **Save changes** stores all templates.
+
 ## Orders
 
 Order list: status filtering, text search, totals. Details: customer/shipping information,
-per-plate filament/text/texture choices and placement snapshots, price breakdown, status
-changes and internal notes. Every textured surface shows its image: either the shop
+per-plate filament/text/texture choices and placement snapshots, price breakdown, order
+processing and the log book (above). Every textured surface shows its image: either the shop
 texture snapshotted at checkout (name plus **Open original**, the full-resolution upload,
 even if the texture was later renamed or removed from the product) or the customer's own
 picture with **Download** (named after the order, item and plate). The backend validates
@@ -169,3 +252,38 @@ current filament colors.
 3MF rendering supports standard colors and Bambu/Orca palettes, extruder assignments
 and painted triangles. PrusaSlicer-specific palettes and multiple beds are not supported.
 Test models in `fixtures/models/` are private fixtures, not shared runtime assets.
+
+## Project orders
+
+`/admin/project-orders` lists customers' requests to print projects from Thingiverse,
+Printables and MakerWorld (`GET /project-orders`), searchable by number, customer or project
+and filterable by status. `/admin/project-orders/:id` shows the project (thumbnail, author,
+license, link to the original page, a warning when the server could not verify it), every
+model to print with its quantity, scale and materials/colors (shown once when the customer
+used one selection for all models), the customer's notes and the customer, and lets the admin change the status
+(new → quoted → accepted → printing → shipped, or cancelled), keep an internal note, or delete
+the order.
+
+**Price** (on the project order page). Orders that need a quote — projects found by search,
+and ready-to-print products ordered with other materials (marked by a warning) — show the
+**price review**: enter the total print time (hours and minutes) and the filament used per
+material (rows start with the materials the customer asked for). A live breakdown shows
+handling fee + print time × hourly rate + each material's weight × price per kg = total with
+the current rates; **Save review** stores it as the order's price (`PUT
+/project-orders/:id/review`, priced by the server), and it can be changed again while the order
+needs a quote. Fixed-price orders (a ready-to-print product ordered with its own materials, any
+colors) show their price as placed, locked. The order list shows each order's price and whether
+it is a quote or a fixed price.
+
+**Ready-to-print product** (below the price): once a review is saved, create a product from it
+with a title, description (prefilled from the project) and whether to publish it now. It keeps
+the review's print time and filament; its price is always calculated from them with the current
+rates.
+
+`/admin/ready-to-print` lists these products with their current price, model count and a publish
+toggle; `/admin/ready-to-print/:id` edits title, description, publication and the print time and
+filament of one set, with the current price breakdown (more sets pay the handling fee once).
+
+`/admin/pricing` holds the shop-wide rates: printer hourly rate, handling fee per order and price
+per kilogram for PLA, PETG, ABS, ASA, TPU and resin. Catalog and ready-to-print prices use them;
+placed orders keep their price, and quotes change only when the review is saved again.

@@ -27,7 +27,18 @@ export async function openTestStorage(name: string): Promise<{ storage: Storage;
   };
 }
 
-/** Removes every order (tests only; the API has no bulk delete). */
+/** Removes every order and print request with their log books, uploads and mail files (tests only; the API has no bulk delete). */
 export async function deleteAllOrders(storage: Storage) {
-  for (const order of await storage.orders.list({ limit: 10_000 })) await storage.orders.delete(order.id);
+  for (const order of await storage.orders.list({ limit: 10_000 })) {
+    await storage.orders.delete(order.id);
+    await storage.logBook.deleteForOrder('order', order.id);
+  }
+  for (const order of await storage.customOrders.list({ limit: 10_000 })) {
+    await storage.customOrders.delete(order.id);
+    await storage.logBook.deleteForOrder('customOrder', order.id);
+  }
+  for (const id of await storage.customerFiles.ids()) await storage.customerFiles.delete(id);
+  for (const id of await storage.mailFiles.ids()) await storage.mailFiles.delete(id);
+  for (const order of await storage.projectOrders.list({ limit: 10_000 })) await storage.projectOrders.delete(order.id);
+  for (const product of await storage.projectProducts.list()) await storage.projectProducts.delete(product.id);
 }

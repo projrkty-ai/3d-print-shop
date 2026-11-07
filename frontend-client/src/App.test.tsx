@@ -25,6 +25,19 @@ afterEach(async () => {
 });
 
 describe('customer-only application', () => {
+  it.each([
+    ['/print-your-model', 'Print your own model'],
+    ['/search', 'Search 3D models'],
+    ['/ready-to-print', 'Ready to print'],
+  ])('exposes both feature flows at %s', async (path, title) => {
+    history.replaceState(null, '', path);
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json([])));
+    await act(async () => root.render(<App />));
+    expect(container.querySelector('h1')?.textContent).toBe(title);
+    expect(container.querySelector('a[href="/print-your-model"]')).not.toBeNull();
+    expect(container.querySelector('a[href="/ready-to-print"]')).not.toBeNull();
+    expect(container.querySelector('.header form')).not.toBeNull();
+  });
   it('contains no admin route or admin navigation and never sends an admin token', async () => {
     history.replaceState(null, '', '/admin');
     const fetch = vi.fn().mockResolvedValue(Response.json([]));
@@ -33,7 +46,7 @@ describe('customer-only application', () => {
     expect(container.querySelector('a[href="/admin"]')).toBeNull();
     expect(container.textContent).not.toContain('Admin sign-in');
     expect(container.querySelector('input[type="password"]')).toBeNull();
-    expect(fetch).toHaveBeenCalledWith('/api/products', { method: 'GET' });
+    expect(fetch).toHaveBeenCalledWith('/api/products', { method: 'GET', signal: expect.any(AbortSignal) });
   });
   it('cannot preview unpublished products even with the legacy preview flag', async () => {
     const product = { ...createSeedProducts()[0], published: false };

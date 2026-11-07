@@ -43,6 +43,17 @@ describe('customer translations', () => {
     expect(createTranslator('en')('{count} business days', { count: 1 })).toBe('1 business day');
   });
 
+  it('formats plural counts with the locale digit grouping without changing the given values', () => {
+    const values = { count: 1843 };
+    expect(createTranslator('en')('{count} results', values)).toBe('1,843 results');
+    expect(values.count).toBe(1843);
+    const polishNumber = new Intl.NumberFormat('pl-PL').format(12345);
+    expect(createTranslator('pl')('{count} results', { count: 12345 })).toBe(`${polishNumber} wyników`);
+    expect(createTranslator('pl')('{count} results', { count: 1002 })).toBe(`${new Intl.NumberFormat('pl-PL').format(1002)} wyniki`);
+    expect(createTranslator('en')('{count}+ results', { count: 12 })).toBe('12+ results');
+    expect(createTranslator('pl')('Showing {count} models', { count: 24 })).toBe('Wyświetlono 24 modele');
+  });
+
   it('requires a finite numeric count rather than silently returning broken plural copy', () => {
     expect(() => createTranslator('pl')('{count} objects', { count: NaN })).toThrow('finite numeric count');
     expect(() => createTranslator('pl')('{count} objects', { count: 'two' })).toThrow('finite numeric count');

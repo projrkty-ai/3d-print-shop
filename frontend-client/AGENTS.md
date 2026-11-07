@@ -63,6 +63,11 @@ Tests pin English; maintain dedicated Polish coverage when adding messages.
 
 Fixtures and seed data support tests; runtime products and model files come from the API.
 
+Keep `/print-your-model`, `/search` and `/ready-to-print` alongside the catalog and cart.
+Custom uploads use `CustomPrintContext` and offered print options; external project orders
+use their own drafts and print-setting contract. Shared customer inputs accept functional
+updates; adapt value-based callbacks at project dialogs rather than dropping either flow.
+
 ## Customer behavior to preserve
 
 - Keep description/carousel on the left and all configuration/previews/cart actions on

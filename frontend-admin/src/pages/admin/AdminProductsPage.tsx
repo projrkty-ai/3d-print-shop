@@ -6,7 +6,7 @@ import { LoadState } from '../../components/LoadState';
 import { ProductThumbnail } from '../../components/ProductThumbnail';
 import { useProducts } from '../../store/ProductsContext';
 import type { Product } from '../../types';
-import { formatPrice, formatRate, pricePerCm3 } from '../../utils/pricing';
+import { formatPrice, formatRate, pricePerCm3, sizePrice } from '../../utils/pricing';
 import { formatDimensions, formatVolume } from '../../utils/sizing';
 
 export function AdminProductsPage() {
@@ -113,8 +113,8 @@ export function AdminProductsPage() {
                   </div>
                 </td>
                 <td>
-                  {formatPrice(product.basePrice)}
-                  <div className="muted">{t("fee")} {formatPrice(product.fixedFee)} + {formatRate(pricePerCm3(product))}
+                  {formatPrice(sizePrice(product, product.model).amount)}
+                  <div className="muted">{!product.catalogPricing && <>{t("fee")} {formatPrice(product.fixedFee)} + </>}{formatRate(pricePerCm3(product))}
                   </div>
                 </td>
                 <td>

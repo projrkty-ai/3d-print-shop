@@ -3,12 +3,14 @@ import { CURRENCY } from './domain/config';
 import type { Order, OrderInput, OrderItem, Product } from './domain/types';
 import { normalizeCustomization, normalizeCustomizationText } from './domain/utils/customization';
 import { summarizeConfiguration } from './domain/utils/orderLines';
-import { calculatePrice } from './domain/utils/pricing';
+import { calculatePrice, catalogPricing } from './domain/utils/pricing';
+import { DEFAULT_PRICING } from './domain/utils/projectPricing';
 import { validateDimensions } from './domain/utils/sizing';
 import { customizationEngravingErrors, customizationExtrudedTextErrors, customizationTextureErrors } from './domain/utils/validation';
 import { DuplicateOrderNumberError, type Storage } from './storage';
 import { HttpError } from './http';
 import { t } from './i18n';
+import { logStatus } from './logBook';
 
 const roundCents = (value: number) => Math.round(value * 100) / 100;
 
@@ -59,16 +61,33 @@ export function priceOrderItems(input: OrderInput, productsById: Map<string, Pro
 /** Short, unambiguous characters (no 0/O, 1/I) for order numbers read out over the phone. */
 const NUMBER_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-function orderNumber(date: Date): string {
+/** Prefixes distinguish catalog orders, customer uploads and external projects. */
+export function orderNumber(date: Date, prefix: 'PF' | 'CP' | 'PJ' = 'PF'): string {
   const day = date.toISOString().slice(2, 10).replaceAll('-', '');
   const suffix = Array.from({ length: 4 }, () => NUMBER_ALPHABET[randomInt(NUMBER_ALPHABET.length)]).join('');
-  return `PF-${day}-${suffix}`;
+  return `${prefix}-${day}-${suffix}`;
+}
+
+/** Inserts with a fresh random number; on the rare collision, draws another. */
+export async function insertWithNumber<T extends { number: string }>(
+  insert: (document: T) => Promise<void>, document: T, draw: () => string,
+): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    document.number = draw();
+    try {
+      await insert(document);
+      return document;
+    } catch (err) {
+      if (!(err instanceof DuplicateOrderNumberError) || attempt >= 5) throw err;
+    }
+  }
 }
 
 export async function createOrder(db: Storage, input: OrderInput): Promise<Order> {
   const productIds = [...new Set(input.items.map((item) => item.productId))];
-  const products = await db.products.getMany(productIds);
-  const items = priceOrderItems(input, new Map(products.map((p) => [p.id, p])));
+  const [products, settings] = await Promise.all([db.products.getMany(productIds), db.settings.getPricing()]);
+  const pricing = catalogPricing(settings ?? DEFAULT_PRICING);
+  const items = priceOrderItems(input, new Map(products.map((p) => [p.id, { ...p, catalogPricing: pricing }])));
 
   const now = new Date();
   const order: Order = {
@@ -77,7 +96,8 @@ export async function createOrder(db: Storage, input: OrderInput): Promise<Order
     status: 'pending',
     customer: input.customer,
     items,
-    total: roundCents(items.reduce((sum, item) => sum + item.lineTotal, 0)),
+    handlingFee: pricing.handlingFee,
+    total: roundCents(pricing.handlingFee + items.reduce((sum, item) => sum + item.lineTotal, 0)),
     currency: CURRENCY,
     ...(input.customerNote && { customerNote: input.customerNote }),
     adminNote: '',
@@ -85,14 +105,7 @@ export async function createOrder(db: Storage, input: OrderInput): Promise<Order
     updatedAt: now.toISOString(),
   };
 
-  // Order numbers are random; on the rare collision, draw another.
-  for (let attempt = 0; ; attempt++) {
-    order.number = orderNumber(now);
-    try {
-      await db.orders.insert(order);
-      return order;
-    } catch (err) {
-      if (!(err instanceof DuplicateOrderNumberError) || attempt >= 5) throw err;
-    }
-  }
+  await insertWithNumber((value) => db.orders.insert(value), order, () => orderNumber(now));
+  await logStatus(db, 'order', order.id, null, order.status);
+  return order;
 }

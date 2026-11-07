@@ -5,6 +5,7 @@ import type { Customization, Order, OrderInput, Product } from './domain/types';
 import { createApp } from './app';
 import { seedProducts, type Storage } from './storage';
 import { deleteAllOrders, openTestStorage } from './storage/testStorage';
+import { DEFAULT_PRICING } from './domain/utils/projectPricing';
 
 const TOKEN = 'test-admin-token';
 const admin = { Authorization: `Bearer ${TOKEN}` };
@@ -25,6 +26,7 @@ afterAll(async () => {
 beforeEach(async () => {
   await deleteAllOrders(db);
   await seedProducts(db, { reset: true });
+  await db.settings.putPricing(DEFAULT_PRICING);
 });
 
 /** Editable fields of a seed product, as the admin UI sends them. */
@@ -239,10 +241,10 @@ describe('products', () => {
       customization: spiralVase({ dimensions: { widthMm: 5, depthMm: 5, heightMm: 5 }, engravingFont: 'Arial' }),
       quantity: 2,
     }])).expect(201);
-    expect(order.total).toBe(12); // Two complete sets: 2 × (4 + 16 × 0.5³).
+    expect(order.total).toBe(5.02); // Two complete sets: 2 × rounded(0.25 cm³ × $0.04875/cm³), plus one handling fee.
     expect(order.items[0].plates).toEqual(plates.map(({ model: _model, ...plate }) => expect.objectContaining(plate)));
     expect(order.items[0].priceLines[0]).toMatchObject({
-      amount: 6,
+      amount: 0.01,
       label: expect.stringContaining('2 plates'),
       note: expect.stringContaining('0.25 cm³'),
     });
@@ -261,6 +263,44 @@ describe('products', () => {
 });
 
 describe('orders', () => {
+  it('uses current rates for catalog reads and checkout, charges handling once and preserves placed prices', async () => {
+    const rates = { ...DEFAULT_PRICING, hourlyRate: 10, handlingFee: 7, filamentPricePerKg: { ...DEFAULT_PRICING.filamentPricePerKg, PLA: 50, PETG: 60 } };
+    await request(app).put('/api/settings/pricing').set(admin).send({
+      hourlyRate: rates.hourlyRate, handlingFee: rates.handlingFee, filamentPricePerKg: rates.filamentPricePerKg,
+    }).expect(200);
+    const product = (await request(app).get('/api/products/spiral-vase').expect(200)).body as Product;
+    expect(product.catalogPricing?.ratesPerCm3.PLA).toBeCloseTo(0.2145);
+    expect(product.catalogPricing?.handlingFee).toBe(7);
+    expect((await db.products.get(product.id))?.catalogPricing).toBeUndefined();
+    const list = (await request(app).get('/api/products').expect(200)).body as Product[];
+    expect(list.find((item) => item.id === product.id)?.catalogPricing).toEqual(product.catalogPricing);
+    expect((await request(app).get('/api/settings/catalog-pricing').expect(200)).body).toEqual(product.catalogPricing);
+    const input = checkout([
+      { productId: product.id, customization: spiralVase(), quantity: 2 },
+      { productId: 'pen-holder', customization: spiralVase({ dimensions: { widthMm: 80, depthMm: 80, heightMm: 100 } }), quantity: 1 },
+    ]);
+    const { body: placed } = await request(app).post('/api/orders').send(input).expect(201);
+    expect(placed.items.map((item: { unitPrice: number }) => item.unitPrice)).toEqual([20.38, 13.1]);
+    expect(placed).toMatchObject({ handlingFee: 7, total: 60.86 });
+
+    await request(app).put('/api/settings/pricing').set(admin).send({
+      hourlyRate: 20, handlingFee: 9, filamentPricePerKg: rates.filamentPricePerKg,
+    }).expect(200);
+    const changed = (await request(app).get('/api/products/spiral-vase').expect(200)).body as Product;
+    expect(changed.catalogPricing?.ratesPerCm3.PLA).toBeCloseTo(0.4095);
+    const next = (await request(app).post('/api/orders').send(input).expect(201)).body;
+    expect(next.total).toBeGreaterThan(placed.total);
+    expect(next.handlingFee).toBe(9);
+    expect((await request(app).get(`/api/orders/${placed.id}`).set(admin).expect(200)).body).toEqual(placed);
+
+    const updated = (await request(app).put('/api/products/spiral-vase').set(admin).send({
+      ...productBody(), catalogPricing: { ratesPerCm3: {}, handlingFee: 0 }, basePrice: 1000, fixedFee: 999,
+    }).expect(200)).body as Product;
+    expect(updated.catalogPricing).toEqual(changed.catalogPricing);
+    expect((await db.products.get(product.id))?.catalogPricing).toBeUndefined();
+    expect((await request(app).post('/api/orders').send(input).expect(201)).body.total).toBe(next.total);
+  });
+
   it('persists per-plate placement and snapshots trusted settings, not customer-supplied placement', async () => {
     const body = productBody('twisted-star-vase');
     const first = { text: { centerX: 20, centerY: 70, horizontalAlign: 'left', verticalAlign: 'top' } };
@@ -351,7 +391,7 @@ describe('orders', () => {
       customization: { ...root, plates: { '1': first, '2': second } },
       quantity: 1,
     }])).expect(201);
-    expect(order.total).toBe(29 + 3 + 5 + 3 + 7);
+    expect(order.total).toBe(5.83 + 3 + 5 + 3 + 7 + 5);
     expect(order.items[0].customization.plates).toEqual({
       '1': { ...first, engravingText: 'First' }, '2': second,
     });
@@ -387,7 +427,7 @@ describe('orders', () => {
     const { body: order } = await request(app).post('/api/orders').send(checkout([{
       productId: 'spiral-vase', customization: spiralVase({ textureId: 'marble' }), quantity: 1,
     }])).expect(201);
-    expect(order.total).toBe(32 + 7);
+    expect(order.total).toBe(4.63 + 7 + 5);
     expect(order.items[0].customization).toMatchObject({ textureId: 'marble', textureDataUrl: null });
     expect(order.items[0].texture).toEqual({ source: 'library', ...marble });
     expect(order.items[0].priceLines.at(-1)).toEqual({ label: 'Picture texture', amount: 7, note: 'Marble' });
@@ -474,15 +514,15 @@ describe('orders', () => {
       },
     ]);
     const { body } = await request(app).post('/api/orders').send(order).expect(201);
-    // $32 at original size + $3 Silk Gold + $5 engraving = $40, × 2
-    expect(body).toMatchObject({ status: 'pending', total: 80, currency: 'USD', adminNote: '' });
+    // $4.63 estimated print + $3 Silk Gold + $5 engraving, × 2, plus $5 handling once.
+    expect(body).toMatchObject({ status: 'pending', total: 30.26, handlingFee: 5, currency: 'USD', adminNote: '' });
     expect(body.number).toMatch(/^PF-\d{6}-[A-HJ-NP-Z2-9]{4}$/);
     expect(body.items[0]).toMatchObject({
       productName: 'Spiral Vase',
       sizeLabel: '110 × 110 × 200 mm',
       colorName: 'Silk Gold',
-      unitPrice: 40,
-      lineTotal: 80,
+      unitPrice: 12.63,
+      lineTotal: 25.26,
     });
     expect(body.items[0].customization.engravingText).toBe('Anna');
     expect(body.items[0].priceLines.map((l: { label: string }) => l.label)).toEqual([

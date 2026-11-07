@@ -9,10 +9,11 @@ import type { CartItem, Order } from '../types';
 import { customizationTextureErrors } from '../utils/validation';
 import { formatPrice } from '../utils/pricing';
 import { CheckoutForm } from './CheckoutForm';
+import { LoadState } from '../components/LoadState';
 
 export function CartPage() {
-  const { items, total, updateQuantity, removeItem, clear } = useCart();
-  const { getProduct } = useProducts();
+  const { items, total, handlingFee, updateQuantity, removeItem, clear } = useCart();
+  const { getProduct, load, reload } = useProducts();
   /** Texture choices the shop has withdrawn since the item was added; checkout would reject them. */
   const textureProblems = (item: CartItem) => {
     const product = getProduct(item.productId);
@@ -34,6 +35,8 @@ export function CartPage() {
       </div>
     );
   }
+
+  if (load.status !== 'ready') return <LoadState load={load} onRetry={() => void reload()} loadingText={t("Loading products…")} />;
 
   return (
     <div className="cart">
@@ -82,6 +85,7 @@ export function CartPage() {
           {t("Clear cart")}
         </button>
         <div className="cart__total">
+          {handlingFee > 0 && <p className="muted">{t("Handling fee per order")}: {formatPrice(handlingFee)}</p>}
           {t("Total")} <strong>{formatPrice(total)}</strong>
         </div>
         {!checkingOut && (
@@ -117,6 +121,7 @@ function OrderConfirmation({ order, cartTotal }: { order: Order; cartTotal: numb
           <span className="muted"> {t("(prices changed since the items were added to your cart: was")} {formatPrice(cartTotal)})</span>
         )}
       </p>
+      {order.handlingFee !== undefined && <p className="muted">{t("Handling fee per order")}: {formatPrice(order.handlingFee)}</p>}
       <p className="muted">
         {t("We'll contact you at")} {order.customer.email} {t("to confirm the order and arrange payment.")}
       </p>

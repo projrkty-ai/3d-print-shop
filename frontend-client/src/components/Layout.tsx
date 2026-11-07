@@ -2,6 +2,7 @@ import { t } from '../i18n';
 import { Link, NavLink, Outlet } from 'react-router';
 import { SHOP_NAME } from '../config';
 import { useCart } from '../store/CartContext';
+import { ModelSearchForm } from './ModelSearchForm';
 
 export function Layout() {
   const { itemCount } = useCart();
@@ -11,9 +12,16 @@ export function Layout() {
         <Link to="/" className="header__brand">
           <span className="header__logo" aria-hidden="true">◆</span> {SHOP_NAME}
         </Link>
+        <ModelSearchForm />
         <nav className="header__nav">
           <NavLink to="/" end>
             {t("Shop")}
+          </NavLink>
+          <NavLink to="/print-your-model">
+            {t("Print your model")}
+          </NavLink>
+          <NavLink to="/ready-to-print">
+            {t("Ready to print")}
           </NavLink>
           <NavLink to="/cart">
             {t("Cart")}{itemCount > 0 && <span className="badge">{itemCount}</span>}

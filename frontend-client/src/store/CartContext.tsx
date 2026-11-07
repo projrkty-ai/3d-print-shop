@@ -3,11 +3,16 @@ import { MAX_QUANTITY } from '../config';
 import type { CartItem } from '../types';
 import { createId } from '../utils/ids';
 import { usePersistentState } from './usePersistentState';
+import { useProducts } from './ProductsContext';
+import { calculatePrice } from '../utils/pricing';
+import { normalizeCustomization } from '../utils/customization';
+import { validateDimensions } from '../utils/sizing';
 
 interface CartContextValue {
   items: CartItem[];
   itemCount: number;
   total: number;
+  handlingFee: number;
   addItem: (item: Omit<CartItem, 'id' | 'addedAt'>) => void;
   updateQuantity: (id: string, quantity: number) => void;
   removeItem: (id: string) => void;
@@ -23,6 +28,7 @@ const clampQuantity = (q: number) => Math.min(MAX_QUANTITY, Math.max(1, Math.rou
 
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = usePersistentState<CartItem[]>('printforge.cart', () => [], isCart);
+  const { products } = useProducts();
 
   const addItem = useCallback(
     (item: Omit<CartItem, 'id' | 'addedAt'>) =>
@@ -43,10 +49,17 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const clear = useCallback(() => setItems([]), [setItems]);
 
   const value = useMemo(() => {
-    const itemCount = items.reduce((n, i) => n + i.quantity, 0);
-    const total = Math.round(items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0) * 100) / 100;
-    return { items, itemCount, total, addItem, updateQuantity, removeItem, clear };
-  }, [items, addItem, updateQuantity, removeItem, clear]);
+    const pricedItems = items.map((item) => {
+      const product = products.find((product) => product.id === item.productId);
+      if (!product?.catalogPricing || validateDimensions(item.customization.dimensions)) return item;
+      const customization = normalizeCustomization(product, item.customization);
+      return { ...item, unitPrice: calculatePrice(product, customization).unitPrice };
+    });
+    const itemCount = pricedItems.reduce((n, i) => n + i.quantity, 0);
+    const handlingFee = items.length > 0 ? products.find((product) => product.catalogPricing)?.catalogPricing?.handlingFee ?? 0 : 0;
+    const total = Math.round((handlingFee + pricedItems.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0)) * 100) / 100;
+    return { items: pricedItems, itemCount, total, handlingFee, addItem, updateQuantity, removeItem, clear };
+  }, [items, products, addItem, updateQuantity, removeItem, clear]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

@@ -1,7 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
 /** Tests that use a database run once per store; `npm run test:sqlite` needs no MongoDB download. */
-const STORAGE_TESTS = ['src/api.test.ts', 'src/i18n.test.ts', 'src/storage/storage.test.ts'];
+const STORAGE_TESTS = ['src/api.test.ts', 'src/customOrders.test.ts', 'src/logBook.test.ts', 'src/i18n.test.ts', 'src/projectOrders.test.ts', 'src/storage/storage.test.ts'];
 
 export default defineConfig({
   test: {

@@ -154,6 +154,13 @@ export interface ProductMedia {
   alt: string;
 }
 
+/** Current volume-based catalog rates, derived by the API, never saved on a product. */
+export interface CatalogPricing {
+  ratesPerCm3: Record<PrintMaterial, number>;
+  handlingFee: number;
+  updatedAt: string | null;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -165,13 +172,14 @@ export interface Product {
   category: string;
   material: string;
   model: ModelSpec;
-  /** Price of a print at the model's original size; scaled prints are priced by volume. */
+  /** Legacy original-size price, retained for compatibility; current catalog uses catalogPricing. */
   basePrice: number;
   /**
-   * Charged on every print regardless of size (setup, machine time, handling).
-   * The rest of `basePrice` is charged per cm³ of material.
+   * Legacy per-print fee. Current catalog prices exclude it and charge handling once per order.
    */
   fixedFee: number;
+  /** Absent in legacy snapshots. Current catalog responses always include these rates. */
+  catalogPricing?: CatalogPricing;
   productionDays: number;
   /** Optional photo (URL or data URL) shown in the catalog. */
   imageUrl: string;
@@ -305,6 +313,8 @@ export interface Order {
   customer: Customer;
   items: OrderItem[];
   total: number;
+  /** Charged once per order; absent on orders placed before dynamic catalog pricing. */
+  handlingFee?: number;
   currency: string;
   customerNote?: string;
   adminNote: string;
@@ -313,8 +323,293 @@ export interface Order {
 }
 
 /** What the checkout sends; prices are always computed on the server. */
+/** External model repositories customers can order projects from. */
+export type ModelSource = 'thingiverse' | 'printables' | 'makerworld';
+
+export interface ExternalProject {
+  source: ModelSource;
+  id: string;
+  title: string;
+  description: string;
+  thumbnailUrl: string | null;
+  /** The original posting on the source site. */
+  url: string;
+  author: string | null;
+  license: string | null;
+}
+
+export interface ProjectFile {
+  id: string;
+  name: string;
+  sizeBytes: number | null;
+  thumbnailUrl: string | null;
+}
+
+export const PROJECT_ORDER_STATUSES = ['new', 'quoted', 'accepted', 'printing', 'shipped', 'cancelled'] as const;
+export type ProjectOrderStatus = (typeof PROJECT_ORDER_STATUSES)[number];
+
+export type ProjectMaterial = 'any' | 'PLA' | 'PETG' | 'ABS' | 'ASA' | 'TPU' | 'resin';
+
+export interface FilamentChoice {
+  material: ProjectMaterial;
+  /** Free text; empty means no preference. */
+  color: string;
+}
+
+export interface ProjectPrintSettings {
+  quantity: number;
+  scalePercent: number;
+  /** Several for multi-color / multi-material prints. */
+  filaments: FilamentChoice[];
+}
+
+/** One model to print; `file: null` is the whole project (the site listed no files). */
+export interface ProjectOrderItem {
+  file: ProjectFile | null;
+  settings: ProjectPrintSettings;
+}
+
+/** A customer's request to print a project from an external model site; the shop quotes and fulfils it. */
+export interface ProjectOrder {
+  id: string;
+  number: string;
+  status: ProjectOrderStatus;
+  customer: Customer;
+  project: ExternalProject;
+  /** False when the server could not fetch the project and kept the customer's copy. */
+  projectVerified: boolean;
+  items: ProjectOrderItem[];
+  /** The customer used one selection for all models. */
+  sameSettingsForAll: boolean;
+  notes: string;
+  adminNote: string;
+  /** True while the shop has to quote: only then may the price change. */
+  requiresQuote: boolean;
+  /** The order's price: fixed when a ready-to-print product was ordered, the shop's quote otherwise. */
+  review?: ProjectReview;
+  /** Set when the customer ordered a ready-to-print product; `materialsChanged` made it a quote request. */
+  product?: { id: string; title: string; sets: number; materialsChanged: boolean };
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Materials the shop prices per kilogram. */
+export const PRINT_MATERIALS = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'resin'] as const;
+export type PrintMaterial = (typeof PRINT_MATERIALS)[number];
+
+/** Shop-wide rates for pricing project orders (`GET/PUT /settings/pricing`). */
+export interface PricingSettings {
+  hourlyRate: number;
+  handlingFee: number;
+  filamentPricePerKg: Record<PrintMaterial, number>;
+  /** Null while the server's defaults are in use. */
+  updatedAt: string | null;
+}
+
+export interface ProjectReviewInput {
+  printMinutes: number;
+  filaments: { material: PrintMaterial; grams: number }[];
+}
+
+/** handling fee + print time × hourly rate + filament used × price per kg, with the rates used. */
+export interface ProjectPricing {
+  printMinutes: number;
+  hourlyRate: number;
+  printTimeCost: number;
+  filaments: { material: PrintMaterial; grams: number; pricePerKg: number; cost: number }[];
+  filamentCost: number;
+  handlingFee: number;
+  total: number;
+  currency: string;
+}
+
+export interface ProjectReview extends ProjectPricing {
+  reviewedAt: string;
+}
+
+/**
+ * A reviewed project offered to customers. Only the measurements of one set are stored; `pricing` is
+ * calculated by the server from them with the current rates on every request.
+ */
+export interface ProjectProduct {
+  id: string;
+  title: string;
+  description: string;
+  published: boolean;
+  project: ExternalProject;
+  items: ProjectOrderItem[];
+  measurements: ProjectReviewInput;
+  pricing: ProjectPricing;
+  sourceOrder: { id: string; number: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface OrderInput {
   customer: Customer;
   items: { productId: string; customization: Customization; quantity: number }[];
   customerNote?: string;
+}
+
+/** Print requests for customers' own STL/3MF files; reviewed and priced by the shop. */
+export const CUSTOM_ORDER_STATUSES = ['submitted', 'approved', 'rejected', 'printing', 'shipped', 'delivered', 'cancelled'] as const;
+export type CustomOrderStatus = (typeof CUSTOM_ORDER_STATUSES)[number];
+
+export interface NozzleOption {
+  id: string;
+  diameterMm: number;
+  /** Applied to the filament price: smaller nozzles print slower. */
+  priceMultiplier: number;
+}
+
+/** Usable with a nozzle from a quarter to 0.8 × its diameter. */
+export interface LayerHeightOption {
+  id: string;
+  heightMm: number;
+  /** Applied to the filament price: thinner layers take longer to print. */
+  priceMultiplier: number;
+}
+
+export interface FilamentColor {
+  id: string;
+  name: string;
+  /** #rrggbb */
+  hex: string;
+}
+
+/** A filament material with the shop's price and the colors in stock. */
+export interface FilamentType {
+  id: string;
+  name: string;
+  description: string;
+  /** What the shop charges per kilogram of printed filament (USD). */
+  pricePerKg: number;
+  densityGPerCm3: number;
+  colors: FilamentColor[];
+}
+
+/** What customers choose from for prints of their own models (GET/PUT /api/print-settings). */
+export interface PrintSettings {
+  nozzles: NozzleOption[];
+  defaultNozzleId: string;
+  layerHeights: LayerHeightOption[];
+  /** Must fit the default nozzle. */
+  defaultLayerHeightId: string;
+  filaments: FilamentType[];
+  updatedAt: string;
+}
+
+/** The filament a customer chose for one color part, snapshotted with its price. */
+export interface PartFilament {
+  /** Part key from the model file; `model` for single-color models. */
+  key: string;
+  name: string;
+  filament: Pick<FilamentType, 'id' | 'name' | 'pricePerKg' | 'densityGPerCm3'>;
+  color: FilamentColor;
+}
+
+/** One uploaded model of a request. The file is private: download it through the admin API. */
+export interface CustomOrderFile {
+  fileId: string;
+  fileName: string;
+  format: MeshFormat;
+  sizeBytes: number;
+  quantity: number;
+  /** Omitted on requests placed before the current print options existed. */
+  nozzle?: NozzleOption;
+  layerHeight?: LayerHeightOption;
+  parts?: PartFilament[];
+}
+
+export interface CustomOrder {
+  id: string;
+  /** Human-friendly reference shown to customers, e.g. CP-261018-K7QX. */
+  number: string;
+  status: CustomOrderStatus;
+  customer: Customer;
+  files: CustomOrderFile[];
+  customerNote?: string;
+  /** Price offered after review; null until quoted. */
+  quotedPrice: number | null;
+  currency: string;
+  adminNote: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The two kinds of orders with a log book. */
+export type OrderKind = 'order' | 'customOrder';
+
+interface LogEntryBase {
+  id: string;
+  orderKind: OrderKind;
+  orderId: string;
+  createdAt: string;
+}
+
+/** A status change; `from` is null for the status the order was placed with. */
+export interface StatusLogEntry extends LogEntryBase {
+  type: 'status';
+  from: string | null;
+  to: string;
+}
+
+/** An email sent to the customer: from a status template, or written by the admin (`template` null). */
+export interface EmailSentLogEntry extends LogEntryBase {
+  type: 'emailSent';
+  to: string;
+  subject: string;
+  body: string;
+  template: EmailTemplateKey | null;
+  /** `outbox`: saved as a file on the server instead of sent (development without SMTP). */
+  delivery: 'sent' | 'outbox' | 'failed';
+  error?: string;
+  messageId: string;
+}
+
+/** An email imported from an .eml file, e.g. the customer's reply. */
+export interface EmailImportedLogEntry extends LogEntryBase {
+  type: 'emailImported';
+  from: string;
+  fromName?: string;
+  to: string;
+  subject: string;
+  body: string;
+  sentAt: string;
+  messageId?: string;
+  attachments: { fileName: string; contentType: string; sizeBytes: number }[];
+  emlFileId: string;
+  /** False when it came from another address than the customer's. */
+  fromCustomer: boolean;
+}
+
+export type LogEntry = StatusLogEntry | EmailSentLogEntry | EmailImportedLogEntry;
+
+export type EmailTemplateKey = `order.${OrderStatus}` | `customOrder.${CustomOrderStatus}`;
+
+export interface EmailTemplate {
+  subject: string;
+  body: string;
+}
+
+/** GET /api/email-templates: the templates, the defaults, and each template's variables. */
+export interface EmailTemplatesResponse {
+  templates: Record<EmailTemplateKey, EmailTemplate>;
+  defaults: Record<EmailTemplateKey, EmailTemplate>;
+  definitions: Record<EmailTemplateKey, { kind: OrderKind; status: string; label: string; variables: string[]; required: string[] }>;
+  updatedAt: string;
+}
+
+/** The status email a status change would send; `missing` lists the `required` values without one. */
+export interface StatusEmailPreview extends EmailTemplate {
+  to: string;
+  template: EmailTemplateKey;
+  required: string[];
+  missing: string[];
+}
+
+/** How the server delivers customer emails. */
+export interface MailDelivery {
+  transport: 'smtp' | 'outbox' | 'disabled';
+  from: string;
 }

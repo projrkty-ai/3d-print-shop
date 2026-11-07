@@ -37,12 +37,22 @@ const countWords = {
   en: {
     product: { one: 'product', few: 'products', other: 'products' },
     order: { one: 'order', few: 'orders', other: 'orders' },
+    projectOrder: { one: 'project order', few: 'project orders', other: 'project orders' },
     object: { one: 'object', few: 'objects', other: 'objects' },
+    request: { one: 'print request', few: 'print requests', other: 'print requests' },
+    file: { one: 'file', few: 'files', other: 'files' },
+    print: { one: 'print', few: 'prints', other: 'prints' },
+    email: { one: 'email', few: 'emails', other: 'emails' },
   },
   pl: {
     product: { one: 'produkt', few: 'produkty', other: 'produktów' },
     order: { one: 'zamówienie', few: 'zamówienia', other: 'zamówień' },
+    projectOrder: { one: 'zamówienie projektu', few: 'zamówienia projektów', other: 'zamówień projektów' },
     object: { one: 'obiekt', few: 'obiekty', other: 'obiektów' },
+    request: { one: 'zlecenie wydruku', few: 'zlecenia wydruku', other: 'zleceń wydruku' },
+    file: { one: 'plik', few: 'pliki', other: 'plików' },
+    print: { one: 'wydruk', few: 'wydruki', other: 'wydruków' },
+    email: { one: 'e-mail', few: 'e-maile', other: 'e-maili' },
   },
 } as const;
 

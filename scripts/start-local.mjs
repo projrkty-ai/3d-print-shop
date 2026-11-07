@@ -105,10 +105,19 @@ function stopAll(exitCode) {
   stopping = true;
   for (const child of running) {
     try {
-      if (WINDOWS) spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+      if (WINDOWS) {
+        const result = spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { encoding: 'utf8', windowsHide: true });
+        if (result.error || result.status !== 0) {
+          console.error(`Could not stop process tree ${child.pid}: ${result.error?.message || result.stderr.trim() || result.stdout.trim() || `taskkill exited with code ${result.status}`}`);
+          exitCode = 1;
+        }
+      }
       else process.kill(-child.pid, 'SIGTERM'); // the whole group: npm, tsx/vite and their workers
-    } catch {
-      // Already exited.
+    } catch (error) {
+      if (error.code !== 'ESRCH') {
+        console.error(`Could not stop process tree ${child.pid}: ${error.message}`);
+        exitCode = 1;
+      }
     }
   }
   const exit = () => process.exit(exitCode);
@@ -122,8 +131,10 @@ function start(app) {
   const child = npm(['run', 'dev'], {
     cwd: join(ROOT, app.dir),
     stdio: ['ignore', 'pipe', 'pipe'],
-    // Own process group on POSIX, so stopping also ends grandchildren.
-    detached: !WINDOWS,
+    // On Windows a separate console keeps Ctrl+C from killing npm's shell before
+    // taskkill can find and stop its descendants.
+    detached: true,
+    windowsHide: WINDOWS,
     env: { ...process.env, ...(color && { FORCE_COLOR: '1' }) },
   });
   running.add(child);
@@ -131,6 +142,11 @@ function start(app) {
   for (const stream of [child.stdout, child.stderr]) {
     createInterface({ input: stream }).on('line', (line) => console.log(`${prefix}${line}`));
   }
+  child.on('error', (error) => {
+    running.delete(child);
+    console.error(paint('31', `\nCould not start ${app.dir}: ${error.message}`));
+    stopAll(1);
+  });
   child.on('exit', (code, signal) => {
     running.delete(child);
     if (!stopping) {

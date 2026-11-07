@@ -105,6 +105,17 @@ async function generateThumbnail({ url, plate, plates, color }: ThumbnailOptions
   return renderThumbnail(prepared, color);
 }
 
+/**
+ * Thumbnail of geometry already parsed in the browser, e.g. a customer's file under review, in
+ * `color` or, for multi-color files, `partColors` by part key. The caller keeps ownership of `raw`.
+ * Throws without WebGL.
+ */
+export function geometryThumbnail(raw: THREE.BufferGeometry, color: string, partColors?: Record<string, string>): string {
+  const prepared = prepareMeshForPreview(raw);
+  const parts = prepared.parts.map((part) => ({ ...part, color: partColors?.[part.key] ?? part.color }));
+  return renderThumbnail({ ...prepared, parts }, color);
+}
+
 /** Cached PNGs, not live canvases: catalog size never determines the number of WebGL contexts. */
 export function modelThumbnail(options: ThumbnailOptions): Promise<string> {
   const key = JSON.stringify([options.url, options.plate, options.plates, options.color]);

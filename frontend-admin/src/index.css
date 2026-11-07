@@ -1792,6 +1792,7 @@ textarea {
 
 .admin-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem;
   margin-bottom: 1.5rem;
@@ -1876,6 +1877,139 @@ textarea {
 .status-badge--cancelled {
   background: #eef0f4;
   color: var(--muted);
+}
+
+.status-badge--new {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.status-badge--quoted {
+  background: var(--info-bg);
+  color: #2b5cb8;
+}
+
+.status-badge--accepted {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.source-badge--thingiverse {
+  background: #196ef0;
+  color: #fff;
+}
+
+.source-badge--printables {
+  background: #e8571a;
+  color: #fff;
+}
+
+.source-badge--makerworld {
+  background: #00875a;
+  color: #fff;
+}
+
+/* ---------- Project orders ---------- */
+
+.project-summary {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 1rem;
+}
+
+.project-summary__thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #f0f3f7, #e2e7ee);
+  color: #c7cdd8;
+  font-size: 2.5rem;
+}
+
+.project-summary__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.order-detail .project-summary__title {
+  margin: 0.35rem 0 0.25rem;
+  font-size: 1.1rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.project-summary p {
+  margin: 0.15rem 0;
+}
+
+.project-summary__description {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.project-files__name {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.project-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.project-item {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.project-item__file {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+}
+
+.project-item__file img {
+  width: 2.25rem;
+  height: 2.25rem;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.project-item .project-preferences {
+  margin-top: 0.6rem;
+}
+
+.project-filaments {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.project-preferences {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
+}
+
+.project-preferences dt {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.project-preferences dd {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 .order-detail h1 {
@@ -2132,4 +2266,566 @@ textarea {
   .viewer__layout {
     grid-template-columns: 1fr;
   }
+}
+
+/* ---------- Print requests (customers' own models) ---------- */
+
+.status-badge--submitted {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.status-badge--approved {
+  background: var(--info-bg);
+  color: #2b5cb8;
+}
+
+.status-badge--rejected {
+  background: var(--error-bg);
+  color: var(--danger);
+}
+
+.custom-files {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.custom-file__name {
+  overflow-wrap: anywhere;
+}
+
+/* Miniature and description of a model: one click target opening the 3D viewer. */
+.custom-file__open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.9rem;
+  min-width: 0;
+  margin: -0.4rem;
+  padding: 0.4rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: zoom-in;
+  transition: background 0.15s;
+}
+
+.custom-file__open:hover:not(:disabled) {
+  background: #f2fafa;
+}
+
+.custom-file__open:focus-visible {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 1px;
+}
+
+.custom-file__open:disabled {
+  cursor: default;
+}
+
+.custom-file__thumb {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #eef1f5;
+}
+
+.custom-file__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.custom-file__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.custom-file__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  font-size: 0.85rem;
+}
+
+.custom-file__warning {
+  color: var(--warning);
+  font-size: 0.85rem;
+}
+
+.custom-file__copies {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-table__number {
+  white-space: nowrap;
+}
+
+.admin-table__files {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .custom-file {
+    flex-wrap: wrap;
+  }
+
+  .custom-file .model-file__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* ---------- Print options (qualities and filaments for print requests) ---------- */
+
+.print-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  font-size: 0.85rem;
+}
+
+.print-choices__setup {
+  font-weight: 600;
+}
+
+.print-choices__part {
+  white-space: nowrap;
+}
+
+.custom-file__estimate {
+  font-size: 0.85rem;
+}
+
+.custom-order__estimate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.filament-editors {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.filament-editor {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.filament-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.filament-editor__header h3 {
+  margin: 0;
+}
+
+.filament-editor__colors {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.print-settings__fit {
+  font-size: 0.85rem;
+}
+
+.print-settings__warning {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* ---------- Order processing and log book ---------- */
+
+.order-processing__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 0 1.5rem;
+  align-items: start;
+}
+
+.order-processing__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
+.status-email {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.status-email .field {
+  margin-bottom: 0;
+}
+
+.status-email__notify {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.status-email__notify input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.status-email__missing {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.email-preview {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.email-preview figcaption {
+  margin-bottom: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.email-preview__body,
+.logbook__body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.email-preview__body {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.customer-message {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.customer-message h3 {
+  margin: 0 0 0.25rem;
+}
+
+.logbook__entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.logbook__entry {
+  position: relative;
+  padding: 0.75rem 0 0.75rem 1.25rem;
+  border-left: 2px solid var(--border);
+}
+
+/* A dot on the timeline, colored by the kind of entry. */
+.logbook__entry::before {
+  content: '';
+  position: absolute;
+  top: 1rem;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.logbook__entry--emailSent::before {
+  background: var(--primary);
+}
+
+.logbook__entry--emailImported::before {
+  background: var(--accent);
+}
+
+.logbook__entry > * {
+  margin: 0 0 0.25rem;
+}
+
+.logbook__time {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.logbook__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.logbook__status {
+  font-weight: 400;
+}
+
+.logbook__subject {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.logbook__body {
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  background: #f5f7fa;
+}
+
+.logbook__error {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.logbook__tag {
+  display: inline-block;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: #eef0f4;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.logbook__tag--sent {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.logbook__tag--outbox {
+  background: var(--info-bg);
+  color: #2b5cb8;
+}
+
+.logbook__tag--failed {
+  background: var(--error-bg);
+  color: var(--danger);
+}
+
+.logbook__tag--warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+/* ---------- Email templates ---------- */
+
+.email-templates__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.email-template {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.email-template__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.email-template__header h3 {
+  margin: 0;
+}
+
+.email-template__variables {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.8rem;
+}
+
+.variable-chip {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.variable-chip--required {
+  border-color: var(--primary);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.email-template__problems {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .order-processing__grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* ---------- Project pricing ---------- */
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+  font-weight: 600;
+}
+
+.input-unit {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.input-unit input {
+  min-width: 0;
+}
+
+/* Inside a .field label, the unit wrapper is not the label text. */
+.field > .input-unit {
+  font-size: inherit;
+  font-weight: 400;
+}
+
+.input-unit > .muted {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.admin-table__thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pricing-page {
+  display: grid;
+  gap: 2rem;
+}
+
+.pricing-settings {
+  max-width: 760px;
+}
+
+.pricing-settings__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 1rem;
+}
+
+.pricing-breakdown {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.pricing-breakdown caption {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding-bottom: 0.35rem;
+}
+
+.pricing-breakdown th,
+.pricing-breakdown td {
+  padding: 0.35rem 0;
+  text-align: left;
+  font-weight: 400;
+  border-bottom: 1px solid var(--border);
+}
+
+.pricing-breakdown td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pricing-breakdown td:nth-child(2) {
+  padding: 0.35rem 0.75rem;
+}
+
+.pricing-breakdown tfoot th,
+.pricing-breakdown tfoot td {
+  font-weight: 700;
+  border-bottom: 0;
+  font-size: 1.05rem;
+}
+
+.project-review fieldset {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.project-review legend {
+  margin-bottom: 0.4rem;
+  font-weight: 700;
+}
+
+.project-review__time {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.project-review__time .field {
+  width: 8rem;
+  margin-bottom: 0;
+}
+
+.project-review__row {
+  display: grid;
+  grid-template-columns: 9rem 10rem auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
 }

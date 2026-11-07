@@ -154,6 +154,16 @@ export interface ProductMedia {
   alt: string;
 }
 
+/** Current volume-based catalog rates, derived by the API, never saved on a product. */
+export const PRINT_MATERIALS = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'resin'] as const;
+export type PrintMaterial = (typeof PRINT_MATERIALS)[number];
+
+export interface CatalogPricing {
+  ratesPerCm3: Record<PrintMaterial, number>;
+  handlingFee: number;
+  updatedAt: string | null;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -165,13 +175,14 @@ export interface Product {
   category: string;
   material: string;
   model: ModelSpec;
-  /** Price of a print at the model's original size; scaled prints are priced by volume. */
+  /** Legacy original-size price, retained for compatibility; current catalog uses catalogPricing. */
   basePrice: number;
   /**
-   * Charged on every print regardless of size (setup, machine time, handling).
-   * The rest of `basePrice` is charged per cm³ of material.
+   * Legacy per-print fee. Current catalog prices exclude it and charge handling once per order.
    */
   fixedFee: number;
+  /** Absent in legacy snapshots. Current catalog responses always include these rates. */
+  catalogPricing?: CatalogPricing;
   productionDays: number;
   /** Optional photo (URL or data URL) shown in the catalog. */
   imageUrl: string;
@@ -305,6 +316,8 @@ export interface Order {
   customer: Customer;
   items: OrderItem[];
   total: number;
+  /** Charged once per order; absent on orders placed before dynamic catalog pricing. */
+  handlingFee?: number;
   currency: string;
   customerNote?: string;
   adminNote: string;
@@ -317,4 +330,244 @@ export interface OrderInput {
   customer: Customer;
   items: { productId: string; customization: Customization; quantity: number }[];
   customerNote?: string;
+}
+
+/** Print requests for the customer's own STL/3MF files; priced by the shop after review. */
+export type CustomOrderStatus = 'submitted' | 'approved' | 'rejected' | 'printing' | 'shipped' | 'delivered' | 'cancelled';
+
+export interface NozzleOption {
+  id: string;
+  diameterMm: number;
+  /** Applied to the price: smaller nozzles print slower. */
+  priceMultiplier: number;
+}
+
+/** Usable with a nozzle from a quarter to 0.8 × its diameter. */
+export interface LayerHeightOption {
+  id: string;
+  heightMm: number;
+  /** Applied to the price: thinner layers take longer to print. */
+  priceMultiplier: number;
+}
+
+export interface FilamentColor {
+  id: string;
+  name: string;
+  hex: string;
+}
+
+export interface FilamentType {
+  id: string;
+  name: string;
+  description: string;
+  /** Used for the price estimate only; customers see prices, not rates. */
+  pricePerKg: number;
+  densityGPerCm3: number;
+  colors: FilamentColor[];
+}
+
+/** Nozzles, layer heights and filaments the shop offers for customers' own models (GET /api/print-settings). */
+export interface PrintSettings {
+  nozzles: NozzleOption[];
+  defaultNozzleId: string;
+  layerHeights: LayerHeightOption[];
+  defaultLayerHeightId: string;
+  filaments: FilamentType[];
+  updatedAt: string;
+}
+
+/** Filament chosen for one color part, as snapshotted in the request. */
+export interface PartFilament {
+  key: string;
+  name: string;
+  filament: Pick<FilamentType, 'id' | 'name' | 'pricePerKg' | 'densityGPerCm3'>;
+  color: FilamentColor;
+}
+
+export interface CustomOrderFile {
+  fileId: string;
+  fileName: string;
+  format: MeshFormat;
+  sizeBytes: number;
+  quantity: number;
+  nozzle?: NozzleOption;
+  layerHeight?: LayerHeightOption;
+  parts?: PartFilament[];
+}
+
+export interface CustomOrder {
+  id: string;
+  /** Human-friendly reference, e.g. CP-261018-K7QX. */
+  number: string;
+  status: CustomOrderStatus;
+  customer: Customer;
+  files: CustomOrderFile[];
+  customerNote?: string;
+  quotedPrice: number | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** An uploaded file, not yet part of a request; the key proves it is this customer's upload. */
+export interface CustomerUpload {
+  fileId: string;
+  uploadKey: string;
+  fileName: string;
+  format: MeshFormat;
+  sizeBytes: number;
+}
+
+export interface CustomOrderInput {
+  customer: Customer;
+  files: {
+    fileId: string;
+    uploadKey: string;
+    quantity: number;
+    nozzleId: string;
+    layerHeightId: string;
+    /** Filament type and color per color part of the model. */
+    parts: { key: string; name: string; filamentId: string; colorId: string }[];
+  }[];
+  customerNote?: string;
+}
+/** External model repositories searched by `GET /model-search`. */
+export type ModelSource = 'thingiverse' | 'printables' | 'makerworld';
+
+/** A model from any repository in one shared shape; `url` opens the original posting. */
+export interface ModelSearchResult {
+  source: ModelSource;
+  id: string;
+  title: string;
+  /** Plain text; empty when the site provides none. */
+  description: string;
+  thumbnailUrl: string | null;
+  url: string;
+  author: string | null;
+}
+
+export interface ModelSearchSource {
+  source: ModelSource;
+  label: string;
+  status: 'ok' | 'error' | 'unconfigured';
+  /** Results from this source in this response (one page). */
+  count: number;
+  /** All matches the source reports, or null when it does not say. */
+  total: number | null;
+  /** Whether `nextCursor` continues this source. */
+  hasMore: boolean;
+  /** The same search on the source's website. */
+  searchUrl: string;
+}
+
+export interface ProjectRef {
+  source: ModelSource;
+  id: string;
+}
+
+/** A project (model page) on one of the external sites. */
+export interface ExternalProject extends ProjectRef {
+  title: string;
+  description: string;
+  thumbnailUrl: string | null;
+  url: string;
+  author: string | null;
+  license: string | null;
+}
+
+/** One printable file (or print profile) of an external project. */
+export interface ProjectFile {
+  id: string;
+  name: string;
+  sizeBytes: number | null;
+  thumbnailUrl: string | null;
+}
+
+/** `GET /model-search/project`: a project page with the files a customer can choose from. */
+export interface ProjectDetails {
+  project: ExternalProject;
+  files: ProjectFile[];
+  /** False when the site did not list files (the customer then describes what to print). */
+  filesAvailable: boolean;
+}
+
+export const PROJECT_MATERIALS = ['any', 'PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'resin'] as const;
+export type ProjectMaterial = (typeof PROJECT_MATERIALS)[number];
+
+/** Maximum materials/colors per model (what common multi-material printers handle). */
+export const MAX_FILAMENTS = 8;
+
+/** One material in one color; multi-color or multi-material models have several. */
+export interface FilamentChoice {
+  material: ProjectMaterial;
+  /** Free text such as "matte black"; empty means no preference. */
+  color: string;
+}
+
+/** How one model of a project should be printed. */
+export interface ProjectPrintSettings {
+  quantity: number;
+  /** Print size relative to the model's own size. */
+  scalePercent: number;
+  filaments: FilamentChoice[];
+}
+
+export interface ProjectOrderInput {
+  customer: Customer;
+  project: Omit<ExternalProject, 'description' | 'license'>;
+  /** One item per chosen model; `file: null` orders the whole project when the site lists no files. */
+  items: { file: Pick<ProjectFile, 'id' | 'name'> | null; settings: ProjectPrintSettings }[];
+  sameSettingsForAll: boolean;
+  notes: string;
+}
+
+export type ProjectOrderStatus = 'new' | 'quoted' | 'accepted' | 'printing' | 'shipped' | 'cancelled';
+
+/** A request to print an external project, as recorded by the shop. */
+export interface ProjectOrder extends ProjectOrderInput {
+  id: string;
+  /** Human-friendly reference, e.g. PJ-261106-K7QX. */
+  number: string;
+  status: ProjectOrderStatus;
+  project: ExternalProject;
+  projectVerified: boolean;
+  items: { file: ProjectFile | null; settings: ProjectPrintSettings }[];
+  adminNote: string;
+  /** False for a ready-to-print product ordered with its own materials: the price is final. */
+  requiresQuote: boolean;
+  /** The order's price; set at once for fixed-price orders, after the shop's quote otherwise. */
+  review?: { total: number; currency: string };
+  product?: { id: string; title: string; sets: number; materialsChanged: boolean };
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A reviewed project the shop prints at a fixed price (`GET /project-products`). */
+export interface ReadyProduct {
+  id: string;
+  title: string;
+  description: string;
+  project: ExternalProject;
+  items: { file: ProjectFile | null; settings: ProjectPrintSettings }[];
+  /** `total` is one set; each further set adds `setPrice` (the handling fee is charged once). */
+  price: { total: number; handlingFee: number; setPrice: number; currency: string };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReadyProductOrderInput {
+  customer: Customer;
+  sets: number;
+  notes: string;
+  /** Materials and colors per model, in the product's order; another material makes it a quote request. */
+  items: { fileId: string | null; filaments: FilamentChoice[] }[];
+}
+
+export interface ModelSearchResponse {
+  query: string;
+  results: ModelSearchResult[];
+  /** Sources searched for this page (the first page lists every source). */
+  sources: ModelSearchSource[];
+  /** Pass back as `cursor` to load more; null when no source has more. */
+  nextCursor: string | null;
 }

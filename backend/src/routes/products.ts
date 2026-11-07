@@ -8,6 +8,8 @@ import { releaseModelFile, type Storage } from '../storage';
 import { HttpError, notFound } from '../http';
 import { productInput, type ProductInput } from '../schemas';
 import { sanitizeDescription } from '../description';
+import { catalogPricing } from '../domain/utils/pricing';
+import { DEFAULT_PRICING } from '../domain/utils/projectPricing';
 
 function assertValid(product: Product) {
   const problems = validateProduct(product);
@@ -24,16 +26,20 @@ function assertMeshUrl(input: ProductInput) {
 
 export function productsRouter(db: Storage, { isAdmin, requireAdmin }: AdminAuth) {
   const router = Router();
+  const currentPricing = async () => catalogPricing((await db.settings.getPricing()) ?? DEFAULT_PRICING);
 
   /** Customers see published products; admins see everything. */
   router.get('/', async (req, res) => {
-    res.json(await db.products.list({ publishedOnly: !isAdmin(req) }));
+    const [products, pricing] = await Promise.all([
+      db.products.list({ publishedOnly: !isAdmin(req) }), currentPricing(),
+    ]);
+    res.json(products.map((product) => ({ ...product, catalogPricing: pricing })));
   });
 
   router.get('/:id', async (req, res) => {
     const product = await db.products.get(String(req.params.id));
     if (!product || (!product.published && !isAdmin(req))) throw notFound('Product');
-    res.json(product);
+    res.json({ ...product, catalogPricing: await currentPricing() });
   });
 
   /** The id is derived from the name and made unique; any id in the body is ignored. */
@@ -46,7 +52,7 @@ export function productsRouter(db: Storage, { isAdmin, requireAdmin }: AdminAuth
     const product: Product = { ...input, id: uniqueSlug(input.name, takenIds), createdAt: now, updatedAt: now };
     assertValid(product);
     await db.products.insert(product);
-    res.status(201).location(`/api/products/${product.id}`).json(product);
+    res.status(201).location(`/api/products/${product.id}`).json({ ...product, catalogPricing: await currentPricing() });
   });
 
   router.put('/:id', requireAdmin, async (req, res) => {
@@ -59,7 +65,7 @@ export function productsRouter(db: Storage, { isAdmin, requireAdmin }: AdminAuth
     assertValid(product);
     if (!(await db.products.replace(product))) throw notFound('Product');
     if (existing.mesh?.url !== product.mesh?.url) await releaseModelFile(db, existing.mesh?.url);
-    res.json(product);
+    res.json({ ...product, catalogPricing: await currentPricing() });
   });
 
   router.delete('/:id', requireAdmin, async (req, res) => {

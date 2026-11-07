@@ -48,6 +48,11 @@ describe('standalone administrator translations', () => {
     expect(formatCount('product', 12, 'pl')).toBe('12 produktów');
     expect(formatCount('order', 22, 'pl')).toBe('22 zamówienia');
     expect(formatCount('object', 0, 'pl')).toBe('0 obiektów');
+    expect(formatCount('file', 1, 'pl')).toBe('1 plik');
+    expect(formatCount('file', 3, 'pl')).toBe('3 pliki');
+    expect(formatCount('print', 12, 'pl')).toBe('12 wydruków');
+    expect(formatCount('request', 2, 'pl')).toBe('2 zlecenia wydruku');
+    expect(formatCount('request', 1, 'en')).toBe('1 print request');
   });
 
   it.each(['en', 'pl'] as const)('formats quantities, dates and USD prices using %s without changing currency', async (selected) => {

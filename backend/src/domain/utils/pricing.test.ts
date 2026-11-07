@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createSeedProducts } from '../data/seedProducts';
 import type { Customization, Dimensions, Product } from '../types';
 import { defaultCustomization, normalizeCustomization } from './customization';
-import { calculatePrice, pricePerCm3, sizePrice, startingPrice } from './pricing';
+import { calculatePrice, catalogMaterial, catalogPricing, pricePerCm3, sizePrice, startingPrice } from './pricing';
+import { DEFAULT_PRICING } from './projectPricing';
 
 // Spiral Vase: 110 × 110 × 200 mm, 95 cm³, $32 at original size, $5 fixed fee
 // → the remaining $27 is spread over 95 cm³ = $0.284/cm³.
@@ -10,6 +11,18 @@ const vase = (): Product => createSeedProducts().find((p) => p.id === 'spiral-va
 const dims = (widthMm: number, depthMm: number, heightMm: number): Dimensions => ({ widthMm, depthMm, heightMm });
 
 describe('sizePrice', () => {
+  it('derives dynamic catalog rates from the agreed density, fill and throughput', () => {
+    const pricing = catalogPricing({ ...DEFAULT_PRICING, hourlyRate: 10, filamentPricePerKg: { ...DEFAULT_PRICING.filamentPricePerKg, PLA: 50 } });
+    expect(pricing.ratesPerCm3.PLA).toBeCloseTo(1.3 * 0.3 * (10 / 20 + 50 / 1000));
+    const product = { ...vase(), catalogPricing: pricing };
+    expect(sizePrice(product, product.model)).toEqual({ volumeCm3: 95, amount: 20.38 });
+    expect(sizePrice(product, dims(55, 55, 100))).toEqual({ volumeCm3: 11.875, amount: 2.55 });
+    expect(sizePrice({ ...product, basePrice: 1000, fixedFee: 999 }, product.model).amount).toBe(20.38);
+    expect(catalogMaterial('PLA+ (multi-color)')).toBe('PLA');
+    expect(catalogMaterial('PETG-CF')).toBe('PETG');
+    expect(catalogMaterial('Resin')).toBe('resin');
+    expect(catalogMaterial('unknown')).toBe('PLA');
+  });
   it('spreads the price minus the fixed fee over the base volume', () => {
     expect(pricePerCm3(vase())).toBeCloseTo(27 / 95);
   });
