@@ -14,6 +14,14 @@ export default defineConfig(({ mode }) => {
         .replace('<html lang="en">', `<html lang="${language}">`)
         .replace('<title>PrintForge — Custom 3D Prints</title>', `<title>${createTranslator(language)('PrintForge — Custom 3D Prints')}</title>`),
     }],
+    // Modules only the slicing Web Worker and the lazily loaded model readers import: bundled up front,
+    // so the dev server doesn't discover them on first use and reload the page (losing the work).
+    optimizeDeps: {
+      include: [
+        'clipper-lib', 'fflate', 'three/examples/jsm/libs/fflate.module.js', 'three/examples/jsm/loaders/3MFLoader.js',
+        'three/examples/jsm/loaders/STLLoader.js', 'three/examples/jsm/loaders/FontLoader.js', 'three/examples/jsm/utils/BufferGeometryUtils.js',
+      ],
+    },
     server: {
       port: 5173,
       strictPort: true,

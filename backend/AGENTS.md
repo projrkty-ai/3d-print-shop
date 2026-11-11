@@ -26,11 +26,12 @@ Run commands from this directory, not the parent directory.
 | Install from lockfile when needed | `npm ci` |
 | Develop against local MongoDB | `npm run dev` |
 | Start local MongoDB when needed | `docker compose up -d` |
-| Target API behavior | `npm test -- src/api.test.ts` |
+| Target API behavior | `npm test -- src/api.test.ts src/orders.test.ts src/uploads.test.ts` |
 | Target domain behavior | `npm test -- src/domain/utils/pricing.test.ts src/domain/utils/plateCustomization.test.ts` |
 | Check all server and test types | `npm run typecheck` |
 | Backend build gate | `npm run build` |
 | Full test suite | `npm test` |
+| Offline SQLite suite | `npm run test:sqlite` |
 | Production process | `npm start` |
 
 `build` is a type-check, not JavaScript emission; production runs source using the
@@ -58,7 +59,8 @@ exercise Polish and invalid configuration.
 | HTTP input shape and response errors | [src/schemas.ts](src/schemas.ts), [src/http.ts](src/http.ts) |
 | Product/order/upload handlers | [src/routes/](src/routes/) |
 | Rich HTML sanitization / description images | [src/description.ts](src/description.ts), [src/routes/mediaFiles.ts](src/routes/mediaFiles.ts) |
-| Checkout orchestration and authoritative totals | [src/orders.ts](src/orders.ts) |
+| Unified orders and authoritative totals | [src/orders/](src/orders/), [src/domain/orderPricing.ts](src/domain/orderPricing.ts) |
+| Printer models, profiles and queues | [src/routes/printerModels.ts](src/routes/printerModels.ts), [src/routes/printers.ts](src/routes/printers.ts), [src/domain/printQueue.ts](src/domain/printQueue.ts) |
 | Local JSON/domain types and constants | [src/domain/types.ts](src/domain/types.ts), [src/domain/config.ts](src/domain/config.ts) |
 | Pricing, sizing, normalization, validation, snapshots | [src/domain/utils/](src/domain/utils/) |
 | API integration coverage | [src/api.test.ts](src/api.test.ts) |
@@ -66,6 +68,16 @@ exercise Polish and invalid configuration.
 
 Keep handlers focused on HTTP/auth/persistence. Reuse local domain helpers for business
 rules instead of creating a second pricing or normalization path.
+
+Catalog, uploaded-model, external-project and Print on Demand purchases share one order
+contract, status set, admin processing, email templates and log book. Preserve source-specific
+models and pricing within that contract. Deprecated storefront order endpoints in
+`routes/legacyOrders.ts` adapt submissions to unified orders; do not restore separate
+admin order stores. Settings retain separate keys (`printSettings`, `emailTemplates`,
+`pricing`). SQLite schema 6 and MongoDB preparation migrate legacy orders, settings,
+email templates and printers without reseeding. Cover migrations in
+`src/storage/storage.test.ts` against both stores; never migrate existing local data
+as part of a code validation run.
 
 ## Rules that must remain true
 
@@ -91,6 +103,13 @@ rules instead of creating a second pricing or normalization path.
 - Keep measurements in mm and volume in cm3; reuse sizing helpers and existing cent
   rounding. Current dimension bounds are 5-270 mm, quantity 1-20; use constants rather
   than scattering these values.
+- Sliced products use per-plate print variants and interpolate measurements within
+  administrator-defined scaling bounds. Preserve legacy volume pricing for unsliced
+  products. Customer upload slicing is an estimate; server pricing and admin review
+  remain authoritative. Reuse print-variant, scaling and order-pricing helpers.
+- Printer models own shared build dimensions, color limits and profile archives.
+  Named workshop printers own queues; preserve queue state validation, estimated
+  timing and the one-hour break between prints.
 - Orders retain readable per-plate appearance and deep-copied layout snapshots after
   products change. MongoDB `_id` stays internal; API IDs are strings. Preserve unique
   indexes and the bounded retry for order-number collisions.
@@ -120,8 +139,9 @@ then type-check. Changes to startup/auth/schemas/persistence should include API 
 pricing or compatibility changes also need domain tests. Escalate to the full suite for
 broad changes, not automatically for documentation edits.
 
-API tests construct `createApp` with isolated `MongoMemoryServer` data; they do not need
-the development API or a real database. The first run may need a MongoDB binary download.
+Storage-backed tests construct `createApp` with in-memory SQLite and isolated
+`MongoMemoryServer` data; they do not need the development API or a real database.
+The first MongoDB run may need a binary download.
 Report download/environment failures rather than substituting production data or
 disabling assertions. Verify failure paths, tampering, old records and exact totals,
 not just successful HTTP status codes. State what was checked and any remaining limits.

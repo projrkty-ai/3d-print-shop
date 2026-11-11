@@ -9,12 +9,26 @@ export function AdminLayout() {
   const { pathname } = useLocation();
   if (!isAdmin) return <AdminSignIn />;
 
-  const onOrders = pathname.startsWith('/admin/orders');
+  const section = pathname.startsWith('/admin/orders') ? 'orders'
+    : pathname.startsWith('/admin/email-templates') ? 'email-templates'
+          : pathname.startsWith('/admin/print-on-demand') ? 'print-on-demand'
+            : pathname.startsWith('/admin/pricing') ? 'pricing'
+              : pathname.startsWith('/admin/slicer') ? 'slicer'
+                : pathname.startsWith('/admin/printers') || pathname.startsWith('/admin/printer-models') ? 'printers' : 'products';
+  const tab = (name: typeof section) => ({
+    className: section === name ? 'is-active' : '',
+    'aria-current': section === name ? ('page' as const) : undefined,
+  });
   return (
     <div className="admin-shell">
       <nav className="admin-tabs" aria-label={t("Admin sections")}>
-        <Link to="/admin" className={onOrders ? '' : 'is-active'} aria-current={onOrders ? undefined : 'page'}>{t("Products")}</Link>
-        <Link to="/admin/orders" className={onOrders ? 'is-active' : ''} aria-current={onOrders ? 'page' : undefined}>{t("Orders")}</Link>
+        <Link to="/admin" {...tab('products')}>{t("Products")}</Link>
+        <Link to="/admin/orders" {...tab('orders')}>{t("Orders")}</Link>
+        <Link to="/admin/email-templates" {...tab('email-templates')}>{t("Email templates")}</Link>
+        <Link to="/admin/print-on-demand" {...tab('print-on-demand')}>{t("Print on Demand")}</Link>
+        <Link to="/admin/pricing" {...tab('pricing')}>{t("Pricing")}</Link>
+        <Link to="/admin/slicer" {...tab('slicer')}>{t("Slicer test")}</Link>
+        <Link to="/admin/printers" {...tab('printers')}>{t("Printers")}</Link>
         <button type="button" className="btn btn--small btn--ghost admin-tabs__signout" onClick={signOut}>{t("Sign out")}</button>
       </nav>
       <Outlet />

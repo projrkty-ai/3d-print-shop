@@ -6,8 +6,10 @@ import { LoadState } from '../../components/LoadState';
 import { ProductThumbnail } from '../../components/ProductThumbnail';
 import { useProducts } from '../../store/ProductsContext';
 import type { Product } from '../../types';
-import { formatPrice, formatRate, pricePerCm3 } from '../../utils/pricing';
+import { formatPrice, formatRate, pricePerCm3, sizePrice } from '../../utils/pricing';
 import { formatDimensions, formatVolume } from '../../utils/sizing';
+import { usesVariantPricing } from '../../utils/printVariants';
+import { formatScale, scaleRange, scalingEnabled } from '../../utils/scaling';
 
 export function AdminProductsPage() {
   const { products, load, reload, createProduct, updateProduct, deleteProduct } = useProducts();
@@ -113,8 +115,9 @@ export function AdminProductsPage() {
                   </div>
                 </td>
                 <td>
-                  {formatPrice(product.basePrice)}
-                  <div className="muted">{t("fee")} {formatPrice(product.fixedFee)} + {formatRate(pricePerCm3(product))}
+                  {formatPrice(sizePrice(product, product.model).amount)}
+                  <div className="muted">{usesVariantPricing(product) ? t("sliced print variants")
+                    : <>{!product.catalogPricing && <>{t("fee")} {formatPrice(product.fixedFee)} + </>}{formatRate(pricePerCm3(product))}</>}
                   </div>
                 </td>
                 <td>
@@ -122,6 +125,9 @@ export function AdminProductsPage() {
                     <span>
                       {formatDimensions(product.model)} · {formatVolume(product.model.volumeCm3)}
                     </span>
+                    <span>{scalingEnabled(product)
+                      ? t("Scalable {0}–{1}", formatScale(scaleRange(product).min), formatScale(scaleRange(product).max))
+                      : t("Fixed size")}</span>
                     <span className="admin-table__colors">
                       {product.colors.map((c) => (
                         <i key={c.id} style={{ background: c.hex }} title={c.name} />

@@ -1,4 +1,4 @@
-import type { ColorOption, Product } from '../types';
+import type { PlateSlicing, ColorOption, Product, TextureOption } from '../types';
 
 const PLA_COLORS: ColorOption[] = [
   { id: 'white', name: 'Arctic White', hex: '#f4f4f2', priceDelta: 0 },
@@ -11,6 +11,13 @@ const PLA_COLORS: ColorOption[] = [
 
 /** Fresh copies, so changing one product's colors can't leak into another (or another catalog). */
 const plaColors = () => PLA_COLORS.map((color) => ({ ...color }));
+
+/** Bundled shop textures (backend/public/models/textures, made by scripts/generate-demo-textures.mjs). */
+const shopTextures = (): TextureOption[] => [
+  { id: 'terrazzo', name: 'Terrazzo', url: '/models/textures/terrazzo.png' },
+  { id: 'sunset', name: 'Sunset stripes', url: '/models/textures/sunset.png' },
+  { id: 'waves', name: 'Ocean waves', url: '/models/textures/waves.png' },
+];
 
 const now = '2026-10-01T12:00:00.000Z';
 
@@ -27,6 +34,7 @@ export function createSeedProducts(): Product[] {
       basePrice: 29,
       fixedFee: 4,
       productionDays: 3,
+      scaling: { enabled: true, minScale: 0.5, maxScale: 1.4 },
       imageUrl: '',
       shape: 'vase',
       mesh: {
@@ -65,6 +73,7 @@ export function createSeedProducts(): Product[] {
       basePrice: 36,
       fixedFee: 6,
       productionDays: 4,
+      scaling: { enabled: true, minScale: 0.5, maxScale: 1.4 },
       imageUrl: '',
       shape: 'vase',
       mesh: {
@@ -107,6 +116,7 @@ export function createSeedProducts(): Product[] {
       basePrice: 32,
       fixedFee: 5,
       productionDays: 3,
+      scaling: { enabled: true, minScale: 0.5, maxScale: 1.3 },
       imageUrl: '',
       shape: 'vase',
       mesh: null,
@@ -121,7 +131,7 @@ export function createSeedProducts(): Product[] {
         colorChoice: true,
         colorPrice: 3,
       },
-      texture: { enabled: true, price: 7 },
+      texture: { enabled: true, price: 7, options: shopTextures(), allowCustom: true },
       createdAt: now,
       updatedAt: now,
     },
@@ -136,6 +146,7 @@ export function createSeedProducts(): Product[] {
       basePrice: 14,
       fixedFee: 3,
       productionDays: 2,
+      scaling: { enabled: true, minScale: 0.6, maxScale: 1.5 },
       imageUrl: '',
       shape: 'cylinder',
       mesh: null,
@@ -164,6 +175,7 @@ export function createSeedProducts(): Product[] {
       basePrice: 19,
       fixedFee: 4,
       productionDays: 4,
+      scaling: { enabled: false, minScale: 1, maxScale: 1 },
       imageUrl: '',
       shape: 'box',
       mesh: null,
@@ -179,6 +191,13 @@ export function createSeedProducts(): Product[] {
         colorPrice: 2,
       },
       texture: { enabled: false, price: 0 },
+      // Raised 3D lettering lying flat on the lid; customers edit the text and size.
+      decorationLayout: {
+        extrudedText: {
+          x: 0, y: 0, z: 80, rotationDeg: 0, tiltDeg: 90, sizeMm: 9, depthMm: 1.2, lineSpacing: 1.2,
+          horizontalAlign: 'center', verticalAlign: 'middle', defaultText: 'With love',
+        },
+      },
       createdAt: now,
       updatedAt: now,
     },
@@ -193,6 +212,7 @@ export function createSeedProducts(): Product[] {
       basePrice: 32,
       fixedFee: 6,
       productionDays: 5,
+      scaling: { enabled: true, minScale: 0.5, maxScale: 1.5 },
       imageUrl: '',
       shape: 'sphere',
       mesh: null,
@@ -214,5 +234,114 @@ export function createSeedProducts(): Product[] {
       createdAt: now,
       updatedAt: now,
     },
+    {
+      id: 'star-vase-set',
+      name: 'Star Vase Set',
+      description:
+        'A full-size twisted star vase with two matching 60% minis, printed on two plates and sold as one set. Give each plate its own filament, lettering and texture — the scale applies to the whole set.',
+      category: 'Home decor',
+      material: 'PLA+',
+      // The editor's analysis of the selected plates: the largest extent per axis and the total volume.
+      model: { widthMm: 117.6, depthMm: 95.9, heightMm: 180, volumeCm3: 171.2 },
+      basePrice: 44,
+      fixedFee: 6,
+      productionDays: 4,
+      scaling: { enabled: true, minScale: 0.6, maxScale: 1.4 },
+      imageUrl: '',
+      shape: 'vase',
+      mesh: {
+        url: '/models/star-vase-project.3mf',
+        format: '3mf',
+        fileName: 'star-vase-project.3mf',
+        sizeBytes: 59735,
+        triangleCount: 17472,
+        parts: [],
+        plates: [
+          {
+            id: 1, name: 'Vase', objectCount: 1, parts: [],
+            model: { widthMm: 95.9, depthMm: 95.9, heightMm: 180, volumeCm3: 119.6 },
+          },
+          {
+            id: 2, name: 'Mini vases', objectCount: 2, parts: [],
+            model: { widthMm: 117.6, depthMm: 57.6, heightMm: 108, volumeCm3: 51.6 },
+            // Each mini is decorated on its own front: picture above, lettering below.
+            decorationLayout: {
+              text: { centerX: 50, centerY: 25, horizontalAlign: 'center', verticalAlign: 'middle' },
+              // About square on a mini's unwrapped surface (≈1.7 × wider than tall).
+              texture: { centerX: 50, centerY: 62, width: 24, height: 40 },
+            },
+          },
+        ],
+        plate: 1,
+        selectedPlates: [1, 2],
+      },
+      published: true,
+      colors: plaColors(),
+      engraving: {
+        enabled: true,
+        maxLength: 24,
+        maxLines: 2,
+        price: 5,
+        fonts: ['Georgia', 'Arial', 'Brush Script MT'],
+        colorChoice: true,
+        colorPrice: 3,
+      },
+      texture: { enabled: true, price: 6, options: shopTextures(), allowCustom: true },
+      // Both plates sliced with the bundled Snapmaker U1 profiles (slicer/) at 60%, 100% and 140%.
+      slicing: [
+        demoSlicing(1, [
+          [0.4, 0.2, 198, 123.1, [[0.6, 70.2, 30.37], [1.4, 408.6, 269.52]]],
+          [0.6, 0.3, 165, 137.95, [[0.6, 37.6, 29.95], [1.4, 415.2, 326.29]]],
+        ]),
+        demoSlicing(2, [
+          [0.4, 0.2, 138.4, 60.69, [[0.6, 32.2, 12.85], [1.4, 298.7, 166.05]]],
+          [0.6, 0.3, 74.9, 59.86, [[0.6, 20.7, 12.56], [1.4, 244, 165.66]]],
+        ]),
+      ],
+      createdAt: now,
+      updatedAt: now,
+    },
   ];
+}
+
+/** [scale, minutes, grams] of a demo variant at another scale. */
+type DemoScaled = [number, number, number][];
+
+/** Demo print variants: [nozzle mm, layer height mm, minutes, grams, other scales] sliced in PLA without supports. */
+function demoSlicing(plateId: number, variants: [number, number, number, number, DemoScaled][]): PlateSlicing {
+  const presetsFor = (nozzle: number, layer: number) => ({
+    printer: `Snapmaker U1 (${nozzle} nozzle)`,
+    process: `${layer.toFixed(2)} Standard @Snapmaker U1 (${nozzle} nozzle)`,
+    filament: `Generic PLA @U1 ${nozzle} nozzle`,
+  });
+  const all = variants.map(([nozzle, layer]) => presetsFor(nozzle, layer));
+  return {
+    plateId,
+    matrix: {
+      printers: [...new Set(all.map((p) => p.printer))],
+      processes: [...new Set(all.map((p) => p.process))],
+      filaments: [...new Set(all.map((p) => p.filament))],
+    },
+    support: false,
+    overrides: {},
+    variants: variants.map(([nozzle, layer, printMinutes, grams, scaled]) => {
+      const measure = (minutes: number, weight: number) => ({ printMinutes: minutes, filaments: [{ material: 'PLA' as const, grams: weight }] });
+      const measurements = measure(printMinutes, grams);
+      return {
+        id: `n${nozzle * 10}-l${Math.round(layer * 100)}`,
+        label: layer < 0.25 ? `Fine: ${layer.toFixed(2)} mm layers, ${nozzle} mm nozzle` : `Fast: ${layer.toFixed(2)} mm layers, ${nozzle} mm nozzle`,
+        presets: presetsFor(nozzle, layer),
+        nozzleMm: nozzle,
+        layerHeightMm: layer,
+        material: 'PLA' as const,
+        measurements,
+        sliced: { ...measurements, slicedAt: now },
+        scaled: scaled.map(([scale, minutes, weight]) => ({
+          scale, measurements: measure(minutes, weight), sliced: { ...measure(minutes, weight), slicedAt: now },
+        })),
+        enabled: true,
+      };
+    }),
+    defaultVariantId: 'n4-l20',
+  };
 }

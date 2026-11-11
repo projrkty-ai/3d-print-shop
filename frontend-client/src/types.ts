@@ -26,10 +26,37 @@ export interface TextureLayout extends SurfacePoint {
   height: number;
 }
 
+/**
+ * Raised 3D lettering the shop places at a point on the printed model. Customers may change
+ * the text and its size; everything else is owned by the shop and snapshotted into orders.
+ */
+export interface ExtrudedTextLayout {
+  /** Anchor in millimeters from the center of the model's footprint: X right, Y toward the back, Z up. */
+  x: number;
+  y: number;
+  z: number;
+  /** Which way the lettering faces and is raised: degrees around the vertical axis; 0 faces the front, 90 the right. */
+  rotationDeg: number;
+  /** Tilt from upright toward facing straight up, in degrees (90 lies flat, e.g. on a lid). */
+  tiltDeg: number;
+  /** Font size in millimeters at the model's original size; the customer may scale it. */
+  sizeMm: number;
+  /** How far the letters are raised, in millimeters. */
+  depthMm: number;
+  /** Distance between lines as a multiple of the size. */
+  lineSpacing: number;
+  horizontalAlign: 'left' | 'center' | 'right';
+  verticalAlign: 'top' | 'middle' | 'bottom';
+  /** Suggested text, shown and printed unless the customer changes it. */
+  defaultText: string;
+}
+
 export interface DecorationLayout {
   text?: TextLayout;
-  /** Omitted preserves the legacy, repeating texture; defined places one image at this size. */
+  /** Omitted places one undistorted picture on the front (see DEFAULT_TEXTURE_LAYOUT); defined stretches it to this box. */
   texture?: TextureLayout;
+  /** Raised 3D lettering at a fixed point; omitted offers none. */
+  extrudedText?: ExtrudedTextLayout;
 }
 
 /** A differently colored part of a multi-color model file (one per color in the file). */
@@ -103,15 +130,100 @@ export interface EngravingConfig extends EngravingLimits {
   colorPrice: number;
 }
 
+/** A texture image prepared by the shop that customers can choose instead of uploading their own. */
+export interface TextureOption {
+  id: string;
+  name: string;
+  /** Uploaded image (`/api/media-files/<id>`) or another site path on the API host. */
+  url: string;
+}
+
 export interface TextureConfig {
   enabled: boolean;
+  /** Charged once per set, whether the texture comes from the library or the customer. */
   price: number;
+  /** Shop textures customers can choose from. Omitted on older products, which offer none. */
+  options?: TextureOption[];
+  /** Customers may upload their own picture. Omitted on older products, which always allowed it. */
+  allowCustom?: boolean;
 }
 
 export interface ProductMedia {
   type: 'image' | 'video';
   url: string;
   alt: string;
+}
+
+/** Current volume-based catalog rates, derived by the API, never saved on a product. */
+export const PRINT_MATERIALS = ['PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'resin'] as const;
+export type PrintMaterial = (typeof PRINT_MATERIALS)[number];
+
+export interface CatalogPricing {
+  ratesPerCm3: Record<PrintMaterial, number>;
+  handlingFee: number;
+  updatedAt: string | null;
+  /** The shop's rates; only administrators receive them. */
+  hourlyRate?: number;
+  filamentPricePerKg?: Record<PrintMaterial, number>;
+  /** Original-size price of every offered print variant, keyed by `variantPriceKey`. */
+  variantPrices?: Record<string, number>;
+  /**
+   * Prices of every offered print variant at the other scales it was sliced at (the product's
+   * smallest and largest scale), keyed like `variantPrices`. Prices between them are interpolated.
+   */
+  variantScalePrices?: Record<string, VariantScalePrice[]>;
+}
+
+/** A variant's price (print time and filament at the shop's rates) at a scale of the whole product. */
+export interface VariantScalePrice {
+  /** Uniform scale factor (1 = original size). */
+  scale: number;
+  price: number;
+}
+
+/** Whether and how far customers may scale a product (uniformly, 1 = original size). */
+export interface ProductScaling {
+  enabled: boolean;
+  /** Smallest and largest scale factor offered; `minScale` ≤ 1 ≤ `maxScale`. */
+  minScale: number;
+  maxScale: number;
+}
+
+/**
+ * A way of printing a plate the shop sliced and offers (nozzle, layer height, material). Customers
+ * receive labels and prices only, never the shop's slicer presets or measurements.
+ */
+export interface PrintVariant {
+  id: string;
+  label: string;
+  nozzleMm: number;
+  layerHeightMm: number;
+  material: PrintMaterial;
+  enabled: boolean;
+  /** Only in administrators' copies of a product. */
+  measurements?: { printMinutes: number; filaments: { material: PrintMaterial; grams: number }[] };
+  /** Only in administrators' copies of a product: measurements at other scales. */
+  scaled?: { scale: number; measurements: { printMinutes: number; filaments: { material: PrintMaterial; grams: number }[] } }[];
+}
+
+/** The print variants offered for one plate (or for a model without plates: `plateId` null). */
+export interface PlateSlicing {
+  plateId: number | null;
+  variants: PrintVariant[];
+  defaultVariantId: string | null;
+}
+
+/** What a cart item or order keeps of the chosen print variant. */
+export interface PrintVariantSummary {
+  id: string;
+  label: string;
+  nozzleMm: number;
+  layerHeightMm: number;
+  material: PrintMaterial;
+  /** Added by the server to orders: how the shop prints it. */
+  presets?: { printer: string; process: string; filament: string };
+  support?: boolean;
+  overrides?: Record<string, string>;
 }
 
 export interface Product {
@@ -125,13 +237,14 @@ export interface Product {
   category: string;
   material: string;
   model: ModelSpec;
-  /** Price of a print at the model's original size; scaled prints are priced by volume. */
+  /** Legacy original-size price, retained for compatibility; current catalog uses catalogPricing. */
   basePrice: number;
   /**
-   * Charged on every print regardless of size (setup, machine time, handling).
-   * The rest of `basePrice` is charged per cm³ of material.
+   * Legacy per-print fee. Current catalog prices exclude it and charge handling once per order.
    */
   fixedFee: number;
+  /** Absent in legacy snapshots. Current catalog responses always include these rates. */
+  catalogPricing?: CatalogPricing;
   productionDays: number;
   /** Optional photo (URL or data URL) shown in the catalog. */
   imageUrl: string;
@@ -144,6 +257,16 @@ export interface Product {
   texture: TextureConfig;
   /** Placement for products without build plates; plates keep their own layouts. */
   decorationLayout?: DecorationLayout;
+  /**
+   * Print variants per plate (or for the whole model). When every included plate offers one, the
+   * print price comes from the chosen variants instead of the volume estimate.
+   */
+  slicing?: PlateSlicing[];
+  /**
+   * Sizes customers may order. Omitted on older products, which customers can scale within the
+   * printer's limits; disabled products are sold at their original size only.
+   */
+  scaling?: ProductScaling;
   createdAt: string;
   updatedAt: string;
 }
@@ -158,8 +281,19 @@ export interface SurfaceCustomization {
   engravingFont: string;
   /** Filament color for the engraved letters; null leaves them in the print color. */
   engravingColorId: string | null;
-  /** Downscaled image (data URL) applied as a relief texture. */
+  /** Downscaled image (data URL) uploaded by the customer and applied as a relief texture. */
   textureDataUrl: string | null;
+  /**
+   * Shop texture (`TextureOption.id`) applied instead of an uploaded picture.
+   * Omitted when none is chosen, and on cart items and orders that predate the texture library.
+   */
+  textureId?: string | null;
+  /** Replacement for the 3D lettering's suggested text ('' removes the lettering); omitted keeps the suggestion. */
+  extrudedText?: string;
+  /** 3D lettering size in millimeters; omitted keeps the shop's size. */
+  extrudedSizeMm?: number;
+  /** Chosen print variant of this plate (products with sliced variants); omitted uses the default. */
+  variantId?: string;
 }
 
 /** One scale for the set, with independent appearances for its included plates. */
@@ -169,12 +303,29 @@ export interface Customization extends SurfaceCustomization {
   plates?: Record<string, SurfaceCustomization>;
 }
 
+/** Which texture is applied: a snapshot of the shop texture, or the customer's own picture (kept in the customization). */
+export type TextureSummary =
+  | { source: 'library'; id: string; name: string; url: string }
+  | { source: 'custom' };
+
+/** Filament chosen for one color part. `key` (the file part) is omitted on orders placed before it was recorded. */
+export interface PartChoice {
+  key?: string;
+  name: string;
+  colorName: string;
+  colorHex: string;
+}
+
 export interface AppearanceSummary {
   colorName: string;
   colorHex: string;
   engravingColor?: { name: string; hex: string };
-  parts?: { name: string; colorName: string; colorHex: string }[];
+  parts?: PartChoice[];
   decorationLayout?: DecorationLayout;
+  /** Omitted without a texture, and on orders that predate the texture library. */
+  texture?: TextureSummary;
+  /** The chosen print variant; omitted for products priced by volume. */
+  printVariant?: PrintVariantSummary;
 }
 
 export interface CartItem {
@@ -190,8 +341,12 @@ export interface CartItem {
   engravingColor?: { name: string; hex: string };
   /** Admin-defined placement snapshot for fulfillment. */
   decorationLayout?: DecorationLayout;
+  /** Texture snapshot, so the order still shows it if the shop later edits its texture library. */
+  texture?: TextureSummary;
   /** Per-part colors of a multi-color model, as chosen when added to the cart. */
-  parts?: { name: string; colorName: string; colorHex: string }[];
+  parts?: PartChoice[];
+  /** Print variant of a product without plates (plates keep theirs in their appearance). */
+  printVariant?: PrintVariantSummary;
   /** Snapshot of every plate included in this set. */
   plates?: { id: number; name: string; objectCount: number; appearance?: AppearanceSummary }[];
   unitPrice: number;
@@ -207,8 +362,12 @@ export interface PriceLine {
   note?: string;
 }
 
-export const ORDER_STATUSES = ['pending', 'paid', 'printing', 'shipped', 'delivered', 'cancelled'] as const;
+/** The statuses every order goes through, whatever its models. */
+export const ORDER_STATUSES = ['received', 'quoted', 'accepted', 'paid', 'queued', 'printing', 'done', 'shipped', 'delivered', 'rejected', 'cancelled'] as const;
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
+
+/** Where an order's models come from: catalog products, the customer's own files, an external project or a Print on Demand product. */
+export type OrderSource = 'catalog' | 'upload' | 'project' | 'printOnDemand';
 
 export interface Address {
   line1: string;
@@ -225,23 +384,24 @@ export interface Customer {
   address: Address;
 }
 
-/** A configured product as ordered: the customer's choices plus a readable, priced snapshot. */
-export type OrderItem = Omit<CartItem, 'id' | 'addedAt'> & {
-  priceLines: PriceLine[];
-  lineTotal: number;
-};
-
+/**
+ * An order as the shop confirms it (`POST /api/orders`), the same for every source; the storefront
+ * shows its number, contents and price. Only `model` of an item depends on the source.
+ */
 export interface Order {
   id: string;
   /** Human-friendly reference shown to customers, e.g. PF-261018-K7QX. */
   number: string;
   status: OrderStatus;
+  source: OrderSource;
   customer: Customer;
-  items: OrderItem[];
-  total: number;
+  customerNote: string;
+  items: { model: { source: OrderSource }; quantity: number; unitPrice: number | null; lineTotal: number | null }[];
+  /** Project and Print on Demand orders. */
+  project?: ExternalProject & { verified: boolean; sameSettingsForAll: boolean };
+  /** `fixed`: the price when ordering; `quote`: the shop sets it after reviewing (`total` null until then). */
+  price: { mode: 'fixed' | 'quote'; handlingFee: number; estimated: number | null; reviewed: number | null; total: number | null };
   currency: string;
-  customerNote?: string;
-  adminNote: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -251,4 +411,265 @@ export interface OrderInput {
   customer: Customer;
   items: { productId: string; customization: Customization; quantity: number }[];
   customerNote?: string;
+}
+
+export interface NozzleOption {
+  id: string;
+  diameterMm: number;
+  /** Applied to the price: smaller nozzles print slower. */
+  priceMultiplier: number;
+}
+
+/** Usable with a nozzle from a quarter to 0.8 × its diameter. */
+export interface LayerHeightOption {
+  id: string;
+  heightMm: number;
+  /** Applied to the price: thinner layers take longer to print. */
+  priceMultiplier: number;
+}
+
+export interface FilamentColor {
+  id: string;
+  name: string;
+  hex: string;
+}
+
+export interface FilamentType {
+  id: string;
+  name: string;
+  description: string;
+  /** Used for the price estimate only; customers see prices, not rates. */
+  pricePerKg: number;
+  densityGPerCm3: number;
+  colors: FilamentColor[];
+}
+
+/** Slicer presets (bundled OrcaSlicer profiles, by name) customers combine into the profile their model is sliced with. */
+export interface CustomerProfiles {
+  printers: string[];
+  processes: string[];
+  filaments: string[];
+}
+
+/** What a customer's model is sliced with: one printer, process and filament preset, supports and a scale. */
+export interface CustomerSlicingProfile {
+  printer: string;
+  process: string;
+  filament: string;
+  support: boolean;
+  /** Uniform scale of the model (1 = its size in the file). */
+  scale: number;
+}
+
+/** Print time and filament of one copy of a customer's model, per color part. */
+export interface CustomPrintMeasurements {
+  printMinutes: number;
+  parts: { key: string; grams: number }[];
+}
+
+/** Estimated prices of uploaded models before they are ordered (POST /api/uploads/estimate). */
+export interface CustomEstimate {
+  items: { unitPrice: number }[];
+  handlingFee: number;
+  total: number;
+  currency: string;
+}
+
+/** Slicing presets and filaments the shop offers for customers' own models (GET /api/print-settings). */
+export interface PrintSettings {
+  /** Offered slicer presets; omitted by older servers (every bundled preset). */
+  profiles?: CustomerProfiles;
+  /** Of requests placed before slicing profiles; no longer offered. */
+  nozzles: NozzleOption[];
+  defaultNozzleId: string;
+  layerHeights: LayerHeightOption[];
+  defaultLayerHeightId: string;
+  filaments: FilamentType[];
+  updatedAt: string;
+}
+
+/** Filament chosen for one color part, as snapshotted in the request. */
+export interface PartFilament {
+  key: string;
+  name: string;
+  filament: Pick<FilamentType, 'id' | 'name' | 'pricePerKg' | 'densityGPerCm3'>;
+  color: FilamentColor;
+}
+
+/** An uploaded file, not yet part of an order; the key proves it is this customer's upload. */
+export interface CustomerUpload {
+  fileId: string;
+  uploadKey: string;
+  fileName: string;
+  format: MeshFormat;
+  sizeBytes: number;
+}
+
+export interface CustomOrderInput {
+  customer: Customer;
+  files: {
+    fileId: string;
+    uploadKey: string;
+    quantity: number;
+    profile: CustomerSlicingProfile;
+    /** The browser's slicing of one copy; omitted when it could not be sliced. */
+    estimate?: CustomPrintMeasurements;
+    /** Filament type and color per color part of the model. */
+    parts: { key: string; name: string; filamentId: string; colorId: string }[];
+  }[];
+  customerNote?: string;
+}
+/** External model repositories searched by `GET /model-search`. */
+export type ModelSource = 'thingiverse' | 'printables' | 'makerworld';
+
+/** A model from any repository in one shared shape; `url` opens the original posting. */
+export interface ModelSearchResult {
+  source: ModelSource;
+  id: string;
+  title: string;
+  /** Plain text; empty when the site provides none. */
+  description: string;
+  thumbnailUrl: string | null;
+  url: string;
+  author: string | null;
+}
+
+export interface ModelSearchSource {
+  source: ModelSource;
+  label: string;
+  status: 'ok' | 'error' | 'unconfigured';
+  /** Results from this source in this response (one page). */
+  count: number;
+  /** All matches the source reports, or null when it does not say. */
+  total: number | null;
+  /** Whether `nextCursor` continues this source. */
+  hasMore: boolean;
+  /** The same search on the source's website. */
+  searchUrl: string;
+}
+
+export interface ProjectRef {
+  source: ModelSource;
+  id: string;
+}
+
+/** A project (model page) on one of the external sites. */
+export interface ExternalProject extends ProjectRef {
+  title: string;
+  description: string;
+  thumbnailUrl: string | null;
+  url: string;
+  author: string | null;
+  license: string | null;
+}
+
+/** One printable file (or print profile) of an external project. */
+export interface ProjectFile {
+  id: string;
+  name: string;
+  sizeBytes: number | null;
+  thumbnailUrl: string | null;
+}
+
+/** `GET /model-search/project`: a project page with the files a customer can choose from. */
+export interface ProjectDetails {
+  project: ExternalProject;
+  files: ProjectFile[];
+  /** False when the site did not list files (the customer then describes what to print). */
+  filesAvailable: boolean;
+}
+
+export const PROJECT_MATERIALS = ['any', 'PLA', 'PETG', 'ABS', 'ASA', 'TPU', 'resin'] as const;
+export type ProjectMaterial = (typeof PROJECT_MATERIALS)[number];
+
+/** Maximum materials/colors per model (what common multi-material printers handle). */
+export const MAX_FILAMENTS = 8;
+
+/** One material in one color; multi-color or multi-material models have several. */
+export interface FilamentChoice {
+  material: ProjectMaterial;
+  /** Free text such as "matte black"; empty means no preference. */
+  color: string;
+}
+
+/** How one model of a project should be printed. */
+export interface ProjectPrintSettings {
+  quantity: number;
+  /** Print size relative to the model's own size. */
+  scalePercent: number;
+  filaments: FilamentChoice[];
+}
+
+export interface ProjectOrderInput {
+  customer: Customer;
+  project: Omit<ExternalProject, 'description' | 'license'>;
+  /** One item per chosen model; `file: null` orders the whole project when the site lists no files. */
+  items: { file: Pick<ProjectFile, 'id' | 'name'> | null; settings: ProjectPrintSettings }[];
+  sameSettingsForAll: boolean;
+  notes: string;
+}
+
+/** A reviewed project the shop prints at a fixed price (`GET /project-products`). */
+export interface ReadyProduct {
+  id: string;
+  title: string;
+  description: string;
+  project: ExternalProject;
+  items: { file: ProjectFile | null; settings: ProjectPrintSettings }[];
+  /** `total` is one set; each further set adds `setPrice` (the handling fee is charged once). The default print. */
+  price: { total: number; handlingFee: number; setPrice: number; currency: string };
+  /** Present when the product is priced from print variants the shop sliced. */
+  printOptions?: ReadyPrintOptions;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** How a sliced Print on Demand product can be printed: a variant per plate and a scale of the whole set. */
+export interface ReadyPrintOptions {
+  plates: {
+    plateId: number | null;
+    name: string;
+    defaultVariantId: string | null;
+    variants: { id: string; label: string; nozzleMm: number; layerHeightMm: number; material: PrintMaterial }[];
+  }[];
+  /** Scale factors (1 = original size); min = max = 1 for a fixed size. */
+  scale: { min: number; max: number };
+  size: Dimensions;
+}
+
+/** The customer's variant per plate (`plateId`, or `model`) and scale. */
+export interface ReadyPrintChoice {
+  scale: number;
+  variants: Record<string, string>;
+}
+
+/** The price of an order before it is placed (POST /api/project-products/:id/quote). */
+export interface ReadyQuote {
+  sets: number;
+  setPrice: number;
+  handlingFee: number;
+  total: number;
+  currency: string;
+  print?: ReadyPrintChoice;
+  /** One set's price of every variant of every plate at the chosen scale: plate key → variant id → price. */
+  variantPrices?: Record<string, Record<string, number>>;
+}
+
+export interface ReadyProductOrderInput {
+  customer: Customer;
+  sets: number;
+  notes: string;
+  /** Materials and colors per model, in the product's order; another material makes it a quote request. */
+  items: { fileId: string | null; filaments: FilamentChoice[] }[];
+  /** Sliced products: the chosen variants and scale. */
+  print?: ReadyPrintChoice;
+}
+
+export interface ModelSearchResponse {
+  query: string;
+  results: ModelSearchResult[];
+  /** Sources searched for this page (the first page lists every source). */
+  sources: ModelSearchSource[];
+  /** Pass back as `cursor` to load more; null when no source has more. */
+  nextCursor: string | null;
 }

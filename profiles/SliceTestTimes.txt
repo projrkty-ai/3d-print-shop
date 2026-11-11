@@ -1,0 +1,8 @@
+Standard profile                            | Time, support disabled | Material (g), support disabled | Time, support enabled | Material (g), support enabled
+--------------------------------------------|------------------------|--------------------------------|-----------------------|------------------------------
+0.10 Standard @Snapmaker U1 (0.2 nozzle)     | 6h53m                 | 41,80g                         | 7h6m                  | 42,48g
+0.20 Standard @Snapmaker U1 (0.4 nozzle)     | 2h16m                 | 37,48g                         | 2h22m                 | 38,35g
+0.20 Standard @Snapmaker U1 (0.4+0.6 nozzle) | 1h34m                 | 40,02g                         | 1h40m                 | 40,9g
+0.20 Standard @Snapmaker U1 (0.6 nozzle)     | 2h6m                  | 40,8g                          | 2h11m                 | 41,98g
+0.30 Standard @Snapmaker U1 (0.6 nozzle)     | 1h39m                 | 42,15g                         | 1h42m                 | 43,36g
+0.40 Standard @Snapmaker U1 (0.8 nozzle)     | 1h24m                 | 46,44g                         | 1h26m                 | 47,46g

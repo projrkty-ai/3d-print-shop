@@ -11,6 +11,14 @@ type PluralMessage = Partial<Record<Intl.LDMLPluralRule, string>> & { other: str
 const englishPlurals: Partial<Record<MessageKey, PluralMessage>> = {
   '{count} objects': { one: '{count} object', other: '{count} objects' },
   '{count} business days': { one: '{count} business day', other: '{count} business days' },
+  '{count} plates': { one: '{count} plate', other: '{count} plates' },
+  '{count} copies': { one: '{count} copy', other: '{count} copies' },
+  '{count} files': { one: '{count} file', other: '{count} files' },
+  '{count} prints in total': { one: '{count} print in total', other: '{count} prints in total' },
+  '≈ {value0} for {count} copies': { one: '≈ {value0} for {count} copy', other: '≈ {value0} for {count} copies' },
+  '{count} results': { one: '{count} result', other: '{count} results' },
+  '{count}+ results': { one: '{count}+ results', other: '{count}+ results' },
+  'Showing {count} models': { one: 'Showing {count} model', other: 'Showing {count} models' },
 };
 
 export function resolveLanguage(value: string | undefined): Language {
@@ -25,9 +33,10 @@ export function localeFor(language: Language): string {
 
 export function createTranslator(language: Language) {
   const plurals = new Intl.PluralRules(localeFor(language));
+  const numbers = new Intl.NumberFormat(localeFor(language));
   return function translate<Key extends MessageKey>(key: Key, ...[values]: Arguments<Key>): string {
     const message: string | PluralMessage = language === 'pl' ? pl[key] : englishPlurals[key] ?? key;
-    const parameters: Record<string, string | number> = values ?? {};
+    const parameters: Record<string, string | number> = { ...values };
     let template: string;
     if (typeof message === 'string') template = message;
     else {
@@ -35,6 +44,8 @@ export function createTranslator(language: Language) {
         throw new Error(`A finite numeric count is required for "${key}".`);
       }
       template = message[plurals.select(parameters.count)] ?? message.other;
+      // Counts are quantities, shown with the locale's digit grouping (1,843 / 1843 / 12 345).
+      parameters.count = numbers.format(parameters.count);
     }
     return template.replace(/\{(\w+)\}/g, (_match, name: string) => {
       if (!(name in parameters)) throw new Error(`Missing translation parameter "${name}" for "${key}".`);

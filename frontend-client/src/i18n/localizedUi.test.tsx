@@ -65,16 +65,44 @@ describe('localized customer UI', () => {
     expect(container.querySelector('button[type="submit"]')?.textContent).toBe('Place order');
   });
 
+  it('renders the print-your-own-model steps in Polish, including plural forms', async () => {
+    const { CustomPrintPage } = await import('../pages/CustomPrintPage');
+    const { CustomPrintProvider } = await import('../store/CustomPrintContext');
+    await act(async () => root.render(<MemoryRouter><CustomPrintProvider><CustomPrintPage /></CustomPrintProvider></MemoryRouter>));
+    expect(container.querySelector('h1')?.textContent).toBe('Wydrukuj własny model');
+    expect(container.querySelector('.steps')?.textContent).toContain('Podsumowanie i potwierdzenie');
+    expect(container.querySelector('.btn--primary')?.textContent).toBe('Przejdź do podsumowania');
+    expect(container.textContent).not.toContain('Upload files');
+    const polish = createTranslator('pl');
+    expect([1, 2, 5, 22].map((count) => polish('{count} files', { count }))).toEqual(['1 plik', '2 pliki', '5 plików', '22 pliki']);
+    expect(polish('{count} prints in total', { count: 3 })).toBe('łącznie 3 wydruki');
+    expect(createTranslator('en')('{count} copies', { count: 1 })).toBe('1 copy');
+  });
+
   it('localizes configurator labels and accessible names without changing input behavior', async () => {
     const { DimensionsInput } = await import('../components/customization/DimensionsInput');
     await act(async () => root.render(
       <DimensionsInput model={createSeedProducts()[0].model} value={createSeedProducts()[0].model}
-        error={null} onChange={vi.fn()} priceLabel={() => '10 USD'} />,
+        error={null} onChange={vi.fn()} priceLabel={() => '10 USD'} range={{ min: 0.5, max: 1.5 }} />,
     ));
     expect(container.querySelector('[aria-label="Gotowe rozmiary"]')).not.toBeNull();
     expect(container.querySelector('[aria-label="Rozmiar jako procent oryginału"]')).not.toBeNull();
     expect(container.textContent).toContain('Szerokość');
     expect(container.textContent).toContain('Głębokość');
     expect(container.querySelectorAll('input[type="number"]')).toHaveLength(3);
+  });
+  it('renders external model search results in Polish without translating model content', async () => {
+    const { ModelSearchCard } = await import('../components/ModelSearchCard');
+    const model = {
+      source: 'printables' as const, id: '1', title: 'Hook set', description: 'Original English description.',
+      thumbnailUrl: null, url: 'https://www.printables.com/model/1-hook-set', author: 'maker_anna',
+    };
+    await act(async () => root.render(<ModelSearchCard model={model} />));
+    expect(container.querySelector('h2')?.textContent).toBe('Hook set');
+    expect(container.querySelector('.model-result__description')?.textContent).toBe('Original English description.');
+    expect(container.querySelector('.model-result__author')?.textContent).toBe('autor: maker_anna');
+    expect(container.querySelector('.model-result__link')?.textContent).toContain('Zobacz w Printables');
+    const polish = createTranslator('pl');
+    expect([1, 3, 12].map((count) => polish('{count} results', { count }))).toEqual(['1 wynik', '3 wyniki', '12 wyników']);
   });
 });

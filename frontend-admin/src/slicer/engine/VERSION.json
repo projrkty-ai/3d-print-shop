@@ -1,0 +1,30 @@
+{
+  "source": "slicer/src",
+  "synced": "2026-11-09T11:05:18.108Z",
+  "files": [
+    "brim.mjs",
+    "calibration.mjs",
+    "config.mjs",
+    "estimator.mjs",
+    "fill.mjs",
+    "flow.mjs",
+    "gcode.mjs",
+    "gcodeanalyze.mjs",
+    "geom.mjs",
+    "index.d.mts",
+    "index.mjs",
+    "meshslice.mjs",
+    "model.mjs",
+    "orca_defaults.mjs",
+    "overhang.mjs",
+    "paint.mjs",
+    "print.mjs",
+    "printobject.mjs",
+    "reference.mjs",
+    "support.mjs",
+    "template.mjs",
+    "wipetower.mjs",
+    "zip.mjs"
+  ],
+  "profiles": 29
+}

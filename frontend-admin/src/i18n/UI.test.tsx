@@ -29,13 +29,21 @@ beforeEach(() => {
   };
   product.engraving.maxLines = 1;
   order = {
-    id: 'original-order-id', number: 'PF-ORIGINAL', status: 'printing',
+    id: 'original-order-id', number: 'PF-ORIGINAL', status: 'printing', source: 'catalog', customerNote: '',
     customer: { name: 'Original Customer', email: 'customer@example.com', address: { line1: 'Original street', city: 'Original city', postalCode: '00-001', country: 'PL' } },
-    items: [], total: 1234.5, currency: 'USD', adminNote: 'Stored English note',
+    items: [], price: { mode: 'fixed', handlingFee: 5, estimated: null, reviewed: null, total: 1234.5 }, currency: 'USD', adminNote: 'Stored English note',
     createdAt: '2026-10-26T12:30:00Z', updatedAt: '2026-10-26T12:30:00Z',
   };
   request = vi.fn<typeof fetch>(async (url, options) => {
     if (String(url).endsWith('/admin/session')) return new Response(null, { status: 401 });
+    if (String(url).endsWith('/log')) return Response.json([]);
+    if (String(url).endsWith('/email-templates/delivery')) return Response.json({ transport: 'smtp', from: 'shop@example.com' });
+    if (String(url).endsWith('/email-preview')) {
+      return Response.json({
+        to: order.customer.email, template: 'paid', subject: 'Payment received for order PF-ORIGINAL',
+        body: 'Hello Original Customer', required: ['orderNumber'], missing: [],
+      });
+    }
     if (String(url).includes('/orders/')) return Response.json({ ...order, ...(options?.method === 'PATCH' ? JSON.parse(String(options.body)) : {}) });
     if (String(url).endsWith('/orders')) return Response.json([order]);
     if (options?.method === 'PUT') return Response.json({ ...product, ...JSON.parse(String(options.body)) });
@@ -144,12 +152,17 @@ describe.each(['en', 'pl'] as const)('%s static administrator UI', (language) =>
     expect(container.textContent).toContain('PF-ORIGINAL');
     const expectedLocale = language === 'pl' ? 'pl-PL' : 'en-US';
     expect(container.textContent).toContain(new Intl.DateTimeFormat(expectedLocale, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(order.createdAt)));
-    expect(container.textContent).toContain(new Intl.NumberFormat(expectedLocale, { style: 'currency', currency: 'USD' }).format(order.total));
+    expect(container.textContent).toContain(new Intl.NumberFormat(expectedLocale, { style: 'currency', currency: 'USD' }).format(order.price.total!));
   });
 
-  it('localizes fulfillment controls without changing saved status IDs or internal notes', async () => {
+  it('localizes order processing and the log book without changing saved status IDs, notes or email content', async () => {
     await open(`/admin/orders/${order.id}`);
-    expect(container.textContent).toContain(label('Fulfilment', 'Realizacja'));
+    expect([...container.querySelectorAll('h2')].map((h) => h.textContent)).toEqual(
+      [
+        label('Models', 'Modele'), label('Measurements', 'Pomiary'), label('Order processing', 'Obsługa zamówienia'), label('Log book', 'Dziennik'),
+        label('Price', 'Cena'), label('Customer', 'Klient'),
+      ],
+    );
     expect(container.querySelector('textarea')?.value).toBe('Stored English note');
     expect(container.textContent).toContain('Original street');
     await act(async () => {
@@ -157,10 +170,15 @@ describe.each(['en', 'pl'] as const)('%s static administrator UI', (language) =>
       status.value = 'paid';
       status.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    const save = [...container.querySelectorAll('button')].find((button) => button.textContent === label('Save changes', 'Zapisz zmiany'));
-    await act(async () => save!.click());
+    expect(container.textContent).toContain(label('Email the customer about this change', 'Powiadom klienta e-mailem o tej zmianie'));
+    const save = () => [...container.querySelectorAll('button')]
+      .find((button) => button.textContent === label('Save and send email', 'Zapisz i wyślij e-mail'))!;
+    for (let i = 0; i < 100 && save().disabled; i++) await act(() => new Promise((resolve) => setTimeout(resolve, 10)));
+    // The email preview shows the template as the server rendered it, untranslated.
+    expect(container.querySelector('.email-preview')?.textContent).toContain('Payment received for order PF-ORIGINAL');
+    await act(async () => save().click());
     const write = request.mock.calls.find(([, options]) => options?.method === 'PATCH');
-    expect(JSON.parse(String(write?.[1]?.body))).toEqual({ status: 'paid', adminNote: 'Stored English note' });
-    expect(container.querySelector('[role="status"]')?.textContent).toBe(label('Order updated.', 'Zamówienie zaktualizowane.'));
+    expect(JSON.parse(String(write?.[1]?.body))).toEqual({ status: 'paid', adminNote: 'Stored English note', notify: true });
+    expect(container.querySelector('.order-processing [role="status"]')?.textContent).toBe(label('Changes saved.', 'Zapisano zmiany.'));
   });
 });

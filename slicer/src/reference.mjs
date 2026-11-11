@@ -1,0 +1,28 @@
+// Parser for reference result tables (format of profiles/SliceTestTimes.txt):
+// "<process preset> | <time, no support> | <g, no support> [| <time, support> | <g, support>]"
+// Times like "6h53m", "37m20s", "1d2h3m"; grams with "," or "." as decimal separator.
+
+export function parseTime(s) {
+  const parts = [...String(s).matchAll(/(\d+)\s*([dhms])/gi)];
+  if (!parts.length) return NaN;
+  const mult = { d: 86400, h: 3600, m: 60, s: 1 };
+  return parts.reduce((t, [, v, u]) => t + (+v) * mult[u.toLowerCase()], 0);
+}
+export function parseGrams(s) { return parseFloat(String(s).replace(',', '.').replace(/g\s*$/i, '')); }
+
+/** True when the reference time includes seconds (Orca shows seconds only for prints < 1 h). */
+export const hasSeconds = (s) => /\d+\s*s/i.test(String(s));
+
+export function parseReferenceText(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    const cols = line.split('|').map((c) => c.trim());
+    if (cols.length < 3 || /^-+$/.test(cols[0]) || /profile/i.test(cols[0]) || !cols[0]) continue;
+    const [process, t0, g0, t1, g1] = cols;
+    const a = parseTime(t0), b = parseGrams(g0);
+    if (Number.isFinite(a) && Number.isFinite(b)) rows.push({ process, support: false, time_s: a, weight_g: b, time_resolution_s: hasSeconds(t0) ? 1 : 60 });
+    const c = parseTime(t1 || ''), d = parseGrams(g1 || '');
+    if (Number.isFinite(c) && Number.isFinite(d)) rows.push({ process, support: true, time_s: c, weight_g: d, time_resolution_s: hasSeconds(t1) ? 1 : 60 });
+  }
+  return rows;
+}

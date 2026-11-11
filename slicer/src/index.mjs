@@ -1,0 +1,225 @@
+// Public API: estimate print time and filament usage of a model with OrcaSlicer profiles.
+// Platform neutral (Node.js and browsers / Web Workers): the caller passes a loaded model, a
+// ProfileLibrary and an optional calibration object. File-system helpers live in node.mjs.
+import { PrintConfig, buildConfig, toBool, toNum } from './config.mjs';
+import { Print } from './print.mjs';
+import { calibrationFor } from './calibration.mjs';
+import { meshBounds } from './model.mjs';
+
+export { ProfileLibrary } from './config.mjs';
+export { loadModelBytes, load3mf, loadStl } from './model.mjs';
+
+/** Orca's short time format (minutes are truncated, like get_time_dhm()). */
+export function formatTime(seconds) {
+  let t = Math.max(0, seconds);
+  const d = Math.floor(t / 86400); t -= d * 86400;
+  const h = Math.floor(t / 3600); t -= h * 3600;
+  const m = Math.floor(t / 60);
+  if (d > 0) return `${d}d${h}h${m}m`;
+  if (h > 0) return `${h}h${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${Math.floor(t)}s`;
+}
+
+/** Find the printer preset compatible with a process preset. */
+function printerForProcess(lib, processName) {
+  const p = lib.resolve(processName);
+  const cp = p.compatible_printers;
+  if (Array.isArray(cp) && cp.length) return cp[0];
+  return null;
+}
+
+/**
+ * Build the print configuration.
+ *  - printer/process/filament preset names (resolved from the profile library), or
+ *  - the project settings stored inside a 3MF (when no printer is given).
+ */
+export function resolveConfig({ model, printer, process, filament, library }) {
+  const lib = library;
+  if (!printer && process) {
+    if (!lib) throw new Error('A profile library is required to resolve presets');
+    printer = printerForProcess(lib, process);
+  }
+  if (printer) {
+    if (!lib) throw new Error('A profile library is required to resolve presets');
+    const cfg = buildConfig(lib, { printer, process, filament });
+    return { cfg, lib, mode: 'presets' };
+  }
+  if (model && model.projectConfig) {
+    const cfg = new PrintConfig({ project: model.projectConfig });
+    cfg.names = {
+      printer: model.projectConfig.printer_settings_id,
+      process: model.projectConfig.print_settings_id,
+      filaments: [].concat(model.projectConfig.filament_settings_id || []),
+    };
+    return { cfg, lib, mode: 'project' };
+  }
+  throw new Error('No printer profile given and the model has no embedded project settings. Use --printer/--process.');
+}
+
+/** Bed centre from printable_area ("0x0,270x0,270x270,0x270"). */
+function bedCenter(cfg) {
+  const pa = [].concat(cfg.raw('printable_area') || []).join(',');
+  const pts = [...pa.matchAll(/(-?[0-9.]+)x(-?[0-9.]+)/g)].map((m) => [+m[1], +m[2]]);
+  if (!pts.length) return { x: 135, y: 135 };
+  const xs = pts.map((p) => p[0]), ys = pts.map((p) => p[1]);
+  return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+}
+
+/**
+ * Duplicate the plate: every object gets instances shifted as a group.
+ *  instances: [{x, y}] absolute centres of the group copies, or
+ *  copies: n (grid arrangement around the bed centre, `spacing` mm between copies)
+ */
+function applyCopies(model, cfg, { copies, instances, spacing = 10 }) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const o of model.objects) for (const v of o.volumes) {
+    const b = meshBounds(v.mesh);
+    minX = Math.min(minX, b.min[0]); minY = Math.min(minY, b.min[1]); maxX = Math.max(maxX, b.max[0]); maxY = Math.max(maxY, b.max[1]);
+  }
+  if (!Number.isFinite(minX)) return;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  let centers = Array.isArray(instances) && instances.length ? instances.map((p) => ({ x: +p.x, y: +p.y })) : null;
+  const n = Math.max(1, Math.floor(+copies || 1));
+  if (!centers && n > 1) {
+    const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols);
+    const w = maxX - minX + spacing, h = maxY - minY + spacing;
+    const bc = bedCenter(cfg);
+    centers = [];
+    for (let i = 0; i < n; i++) {
+      const r = Math.floor(i / cols), c = i % cols;
+      centers.push({ x: bc.x + (c - (cols - 1) / 2) * w, y: bc.y + ((rows - 1) / 2 - r) * h });
+    }
+  }
+  if (!centers) return;
+  const shifts = centers.map((p) => ({ x: p.x - cx, y: p.y - cy }));
+  for (const o of model.objects) o.instances = shifts;
+}
+
+/**
+ * Scale the whole plate uniformly (1 = original size): every vertex moves away from the plate's
+ * centre (XY) and from the bed (Z), so objects keep their arrangement and stay on the bed.
+ */
+function applyScale(model, scale) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const o of model.objects) for (const v of o.volumes) {
+    const b = meshBounds(v.mesh);
+    minX = Math.min(minX, b.min[0]); minY = Math.min(minY, b.min[1]); maxX = Math.max(maxX, b.max[0]); maxY = Math.max(maxY, b.max[1]);
+  }
+  if (!Number.isFinite(minX)) return;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  for (const o of model.objects) {
+    for (const v of o.volumes) {
+      const src = v.mesh.vertices;
+      const out = new Float64Array(src.length);
+      for (let i = 0; i < src.length; i += 3) {
+        out[i] = cx + (src[i] - cx) * scale;
+        out[i + 1] = cy + (src[i + 1] - cy) * scale;
+        out[i + 2] = src[i + 2] * scale;
+      }
+      v.mesh = { ...v.mesh, vertices: out };
+    }
+    if (Array.isArray(o.instances)) o.instances = o.instances.map((p) => ({ x: p.x * scale, y: p.y * scale }));
+  }
+}
+
+/**
+ * Estimate time and filament.
+ * @param {object} o
+ *   model: loaded model ({ objects, projectConfig }, see loadModelBytes)
+ *   library: ProfileLibrary with the printer/process/filament presets
+ *   printer, process, filament: preset names (optional when the 3MF embeds project settings)
+ *   support: true/false (default: as configured)
+ *   calibration: calibration object (data/calibration.json) or null for the raw model
+ *   overrides: { option: value } Orca settings overriding the profiles (e.g. { sparse_infill_density: '20%' })
+ *   scale: uniform scale of the plate (default 1 = original size)
+ *   copies / instances / copies_spacing: print several copies of the plate
+ *   gcode: true to return the generated G-code text in result.gcode
+ *   onProgress: (stage, fraction) => void
+ */
+export function estimate(o) {
+  const t0 = Date.now();
+  const progress = typeof o.onProgress === 'function' ? o.onProgress : () => {};
+  const model = o.model;
+  if (!model || !Array.isArray(model.objects)) throw new Error('estimate(): a loaded model is required');
+  let { cfg, mode } = resolveConfig({ ...o, model });
+  if (o.overrides && Object.keys(o.overrides).length) {
+    const names = cfg.names;
+    cfg = cfg.withOverrides(Object.fromEntries(Object.entries(o.overrides).map(([k, v]) => [k, String(v)])));
+    cfg.names = names;
+  }
+  if (!model.objects.length) throw new Error('The model has no printable objects');
+  if (o.scale !== undefined && o.scale !== null && o.scale !== 1) {
+    const s = +o.scale;
+    if (!(s > 0 && s <= 100)) throw new Error(`Invalid scale ${o.scale}: expected a factor above 0 (1 = original size)`);
+    applyScale(model, s);
+  }
+  if (o.copies > 1 || (Array.isArray(o.instances) && o.instances.length)) applyCopies(model, cfg, { copies: o.copies, instances: o.instances, spacing: o.copies_spacing ?? 10 });
+  let support = o.support;
+  if (support === undefined || support === null) support = toBool(cfg.get('enable_support'));
+  const cal = o.calibration || null;
+  const calValues = calibrationFor(cal, cfg);
+  const print = new Print(model, cfg, { support, calibration: calValues, onProgress: progress }).process();
+  const { gen } = print.export({ gcode: !!o.gcode });
+  const st = print.stats();
+  progress('done', 1);
+  const dens = (e) => cfg.filNum('filament_density', e) || 1.24;
+  const gramsOf = (roles) => roles.reduce((s, r) => s + (st.byRole[r] || 0), 0);
+  const d0 = dens(0);
+  const supportFactor = calValues.support_weight_factor ?? 1;
+  const modelRoles = ['perimeter', 'external', 'overhang', 'bottom', 'solid', 'sparse', 'top', 'bridge', 'internalBridge', 'gapfill', 'brim'];
+  const timeTags = st.timeByTag;
+  const tsum = (tags) => tags.reduce((s, k) => s + (timeTags[k] || 0), 0);
+  const supTimeRaw = tsum(['support', 'supportInterface']);
+  const result = {
+    model: o.modelName,
+    printer: cfg.names?.printer,
+    process: cfg.names?.process,
+    filaments: cfg.names?.filaments,
+    config_source: mode,
+    support: !!support,
+    time_s: Math.round(st.time),
+    time: formatTime(st.time),
+    weight_g: +st.grams.toFixed(2),
+    filament_length_m: +st.perExtruder.reduce((s, x) => s + x.length_m, 0).toFixed(2),
+    per_extruder: st.perExtruder.filter((x) => x.volume_mm3 > 0.001).map((x) => ({ extruder: x.extruder, weight_g: +x.grams.toFixed(2), length_m: +x.length_m.toFixed(2) })),
+    layers: print.layers.length,
+    first_layer_time_s: Math.round(gen.est.layerTimes[0] || 0),
+    tool_changes: st.toolChanges,
+    breakdown: {
+      weight_g: {
+        model: +(gramsOf(modelRoles) * d0 / 1000).toFixed(2),
+        support: +(gramsOf(['support', 'supportInterface']) * supportFactor * d0 / 1000).toFixed(2),
+        wipe_tower: +(gramsOf(['tower', 'towerFinish']) * d0 / 1000).toFixed(2),
+        custom_gcode: +(gramsOf(['custom']) * d0 / 1000).toFixed(2),
+      },
+      time_s: {
+        model: Math.round(tsum(modelRoles)),
+        support: Math.round(supTimeRaw * (calValues.support_time_factor ?? 1) + (calValues.support_island_time ?? 0) * (print.supportIslands || 0)),
+        wipe_tower: Math.round(tsum(['tower', 'towerFinish'])),
+        tool_changes: Math.round(tsum(['tcfixed', 'toolchange'])),
+        travel_retract: Math.round(tsum(['travel', 'retract', 'layerchange'])),
+        start_end_gcode: Math.round(tsum(['start', 'end'])),
+        cooling_slowdown: Math.round(print.coolingTime || 0),
+      },
+    },
+    copies: model.objects[0]?.instances?.length || 1,
+    scale: +(o.scale ?? 1),
+    calibration: calValues,
+    elapsed_ms: Date.now() - t0,
+  };
+  if (o.gcode) result.gcode = gen.text.join('\n') + '\n';
+  // diagnostics used by the calibration tool
+  result._diag = {
+    time_raw_s: gen.est.time,
+    weight_raw_g: gen.usedVolume.reduce((s, v, e) => s + v * dens(e) / 1000, 0),
+    support_time_raw_s: supTimeRaw,
+    support_weight_raw_g: gramsOf(['support', 'supportInterface']) * d0 / 1000,
+    support_islands: print.supportIslands || 0,
+    tower_purge_time_s: timeTags.tower || 0,
+    tower_purge_weight_g: (st.byRole.tower || 0) * d0 / 1000,
+    tower_purge_lines: print.tower ? print.tower.stats.purgeLines : 0,
+    extra_spacing: toNum(cfg.get('wipe_tower_extra_spacing'), 1) || 1,
+  };
+  return result;
+}

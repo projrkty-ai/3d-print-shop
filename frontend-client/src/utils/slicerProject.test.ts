@@ -234,6 +234,34 @@ describe('bundled demo project', () => {
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   };
 
+  it('decorates each vase of the two-vase plate on its own outside, straight ahead of its own axis', () => {
+    const { geometry, surface } = prepareMeshForPreview(parseMeshFile(file(), { plate: 2 }));
+    const position = geometry.getAttribute('position');
+    const normal = geometry.getAttribute('normal');
+    const uv = geometry.getAttribute('uv');
+    const decorated = geometry.groups.flatMap((group) => surface.slots?.[group.materialIndex ?? 0] === 'plain' ? [] :
+      Array.from({ length: group.count / 3 }, (_, i) => {
+        const v = group.start + i * 3;
+        const mean = (get: (index: number) => number) => (get(v) + get(v + 1) + get(v + 2)) / 3;
+        return {
+          x: mean((index) => position.getX(index)), z: mean((index) => position.getZ(index)),
+          nx: normal.getX(v), nz: normal.getZ(v), u: mean((index) => uv.getX(index)),
+        };
+      }));
+    for (const side of [-1, 1]) {
+      const vase = decorated.filter((triangle) => Math.sign(triangle.x) === side);
+      const centerX = (Math.min(...vase.map((t) => t.x)) + Math.max(...vase.map((t) => t.x))) / 2;
+      const centerZ = (Math.min(...vase.map((t) => t.z)) + Math.max(...vase.map((t) => t.z))) / 2;
+      expect(vase.length).toBeGreaterThan(1000);
+      // No inner wall carries decoration…
+      expect(vase.filter((t) => t.nx * (t.x - centerX) + t.nz * (t.z - centerZ) < 0)).toEqual([]);
+      // …and the front of each vase is the middle of the texture, not an angle around the plate.
+      const front = vase.filter((t) => t.z > centerZ && Math.abs(t.x - centerX) < 0.02);
+      expect(front.length).toBeGreaterThan(0);
+      for (const triangle of front) expect(triangle.u).toBeCloseTo(0.5, 1);
+    }
+  }, 60_000);
+
   it('has a full-size vase on plate 1 and two 60% vases on plate 2', () => {
     const plate1 = analyzeMesh(parseMeshFile(file()));
     expect(plate1).toMatchObject({ widthMm: 95.9, depthMm: 95.9, heightMm: 180, volumeCm3: 119.6, plate: 1 });

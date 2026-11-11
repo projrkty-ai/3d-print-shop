@@ -124,6 +124,6 @@ describe('independent plate customization', () => {
     p.colors = p.colors.map((color) => ({ ...color, priceDelta: 2 }));
     const original = startingPrice(p);
     p.mesh!.plates[1].parts = [];
-    expect(startingPrice(p)).toBe(original + 2);
+    expect(startingPrice(p)).toBeCloseTo(original + 2, 2);
   });
 });

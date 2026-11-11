@@ -7,13 +7,15 @@ import { DimensionsInput } from '../components/customization/DimensionsInput';
 import { SurfaceOptions } from '../components/customization/SurfaceOptions';
 import { useProducts } from '../store/ProductsContext';
 import type { Customization, Product, SurfaceCustomization } from '../types';
-import { customizationSurfaces, defaultCustomization, normalizeCustomization } from '../utils/customization';
+import { customizationSurfaces, defaultCustomization, extrudedTextChoice, normalizeCustomization } from '../utils/customization';
 import { decorationLayoutFor } from '../utils/decorationLayout';
 import { calculatePrice, engravingColor, formatPrice, sizePrice } from '../utils/pricing';
-import { formatDimensions, nearestPrintable, previewScale, validateDimensions } from '../utils/sizing';
-import { customizationEngravingErrors } from '../utils/validation';
+import { formatDimensions, previewScale } from '../utils/sizing';
+import { nearestAllowed, printScale, productDimensionsError, scaleRange, scalingEnabled } from '../utils/scaling';
+import { customizationEngravingErrors, customizationExtrudedTextErrors } from '../utils/validation';
 import { NotFoundPage } from './NotFoundPage';
 import { ProductDescription } from '../components/ProductDescription';
+import { appliedTextureUrl } from '../utils/texture';
 
 export function ProductPreviewPage() {
   const { productId } = useParams();
@@ -28,10 +30,12 @@ function Preview({ product }: { product: Product }) {
   const [draft, setDraft] = useState(() => defaultCustomization(product));
   if (product.colors.length === 0) return <NotFoundPage message={t("Add at least one filament color before previewing.")} />;
   const customization = normalizeCustomization(product, draft);
-  const dimensions = nearestPrintable(product.model, customization.dimensions);
+  const dimensions = nearestAllowed(product, customization.dimensions);
   const scale = previewScale(product.model, dimensions);
-  const dimensionError = validateDimensions(customization.dimensions);
+  const dimensionError = productDimensionsError(product, customization.dimensions);
+  const printSize = dimensionError ? null : printScale(product, customization.dimensions);
   const errors = customizationEngravingErrors(product, customization);
+  const extrudedErrors = customizationExtrudedTextErrors(product, customization);
   const update = (patch: Partial<Customization>) => setDraft((previous) => ({ ...previous, ...patch }));
   function updateSurface(plateId: number | undefined, patch: Partial<SurfaceCustomization>) {
     setDraft((previous) => {
@@ -67,17 +71,27 @@ function Preview({ product }: { product: Product }) {
               engravingText={choices.engravingText}
               engravingFont={choices.engravingFont}
               engravingColor={engravingColor(product, choices)?.hex ?? null}
-              textureDataUrl={choices.textureDataUrl}
+              textureUrl={appliedTextureUrl(product, choices)}
               decorationLayout={decorationLayoutFor(product, plate)}
+              extrudedText={(() => {
+                const choice = extrudedTextChoice(decorationLayoutFor(product, plate), choices);
+                return choice && { layout: choice.lettering, text: choice.text, sizeMm: choice.sizeMm, modelMm: plate?.model ?? product.model };
+              })()}
             />
             <SurfaceOptions product={product} parts={parts} value={choices}
               error={errors.find((error) => error.plateId === (plate?.id ?? null))?.message ?? null}
-              onChange={(patch) => updateSurface(plate?.id, patch)} perSet={plate !== null} />
+              decorationLayout={decorationLayoutFor(product, plate)}
+              extrudedError={extrudedErrors.find((error) => error.plateId === (plate?.id ?? null))?.message ?? null}
+              onChange={(patch) => updateSurface(plate?.id, patch)} perSet={plate !== null} plate={plate} printScale={printSize} />
           </section>
         ))}
         </div>
-        <DimensionsInput model={product.model} value={customization.dimensions} error={dimensionError}
-          onChange={(dimensions) => update({ dimensions })} priceLabel={(dimensions) => formatPrice(sizePrice(product, dimensions).amount)} />
+        {scalingEnabled(product) ? (
+          <DimensionsInput model={product.model} value={customization.dimensions} error={dimensionError} range={scaleRange(product)}
+            onChange={(dimensions) => update({ dimensions })} priceLabel={(dimensions) => formatPrice(sizePrice(product, dimensions, customization).amount)} />
+        ) : (
+          <p className="fixed-size"><strong>{t("Size")}:</strong> {formatDimensions(product.model)} <span className="muted">{t("(printed at the original size)")}</span></p>
+        )}
       </div>
     </div>
   );

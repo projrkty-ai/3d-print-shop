@@ -1,15 +1,24 @@
 import { t } from '../i18n';
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { ConfigurationDetails, ItemSwatch } from '../components/ConfiguredItem';
+import { ConfigurationDetails, ItemThumbnail } from '../components/ConfiguredItem';
 import { MAX_QUANTITY } from '../config';
 import { useCart } from '../store/CartContext';
-import type { Order } from '../types';
+import { useProducts } from '../store/ProductsContext';
+import type { CartItem, Order } from '../types';
+import { customizationTextureErrors } from '../utils/validation';
 import { formatPrice } from '../utils/pricing';
 import { CheckoutForm } from './CheckoutForm';
+import { LoadState } from '../components/LoadState';
 
 export function CartPage() {
-  const { items, total, updateQuantity, removeItem, clear } = useCart();
+  const { items, total, handlingFee, updateQuantity, removeItem, clear } = useCart();
+  const { getProduct, load, reload } = useProducts();
+  /** Texture choices the shop has withdrawn since the item was added; checkout would reject them. */
+  const textureProblems = (item: CartItem) => {
+    const product = getProduct(item.productId);
+    return product ? customizationTextureErrors(product, item.customization) : [];
+  };
   const [checkingOut, setCheckingOut] = useState(false);
   // The placed order, with the cart total it replaced (to explain any price change).
   const [placed, setPlaced] = useState<{ order: Order; cartTotal: number } | null>(null);
@@ -27,18 +36,26 @@ export function CartPage() {
     );
   }
 
+  if (load.status !== 'ready') return <LoadState load={load} onRetry={() => void reload()} loadingText={t("Loading products…")} />;
+
   return (
     <div className="cart">
       <h1>{t("Your cart")}</h1>
       <ul className="cart__items">
         {items.map((item) => (
           <li key={item.id} className="cart-item">
-            <ItemSwatch item={item} />
+            <ItemThumbnail item={item} product={getProduct(item.productId)} />
             <div className="cart-item__info">
               <Link to={`/product/${item.productId}`} className="cart-item__name">
                 {item.productName}
               </Link>
               <ConfigurationDetails item={item} />
+              {textureProblems(item).map(({ message }) => (
+                <p key={message} className="cart-item__problem" role="alert">
+                  {message}{' '}
+                  <Link to={`/product/${item.productId}`}>{t("Configure again")}</Link>
+                </p>
+              ))}
             </div>
             <div className="cart-item__controls">
               <input
@@ -68,6 +85,7 @@ export function CartPage() {
           {t("Clear cart")}
         </button>
         <div className="cart__total">
+          {handlingFee > 0 && <p className="muted">{t("Handling fee per order")}: {formatPrice(handlingFee)}</p>}
           {t("Total")} <strong>{formatPrice(total)}</strong>
         </div>
         {!checkingOut && (
@@ -98,11 +116,12 @@ function OrderConfirmation({ order, cartTotal }: { order: Order; cartTotal: numb
         {t("Your order number is")} <strong className="mono">{order.number}</strong>{t(". Keep it for any questions about your order.")}
       </p>
       <p>
-        {t("Total:")} <strong>{formatPrice(order.total)}</strong>
-        {order.total !== cartTotal && (
+        {t("Total:")} <strong>{formatPrice(order.price.total ?? 0)}</strong>
+        {order.price.total !== cartTotal && (
           <span className="muted"> {t("(prices changed since the items were added to your cart: was")} {formatPrice(cartTotal)})</span>
         )}
       </p>
+      <p className="muted">{t("Handling fee per order")}: {formatPrice(order.price.handlingFee)}</p>
       <p className="muted">
         {t("We'll contact you at")} {order.customer.email} {t("to confirm the order and arrange payment.")}
       </p>

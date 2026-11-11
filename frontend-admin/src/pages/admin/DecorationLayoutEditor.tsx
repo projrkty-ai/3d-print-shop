@@ -94,8 +94,8 @@ export function DecorationLayoutEditor({ value, textEnabled, textureEnabled, onC
             <PercentControl label={t("Texture width")} value={texture.width} min={1} onChange={(width) => resizeTexture('width', width)} />
             <PercentControl label={t("Texture height")} value={texture.height} min={1} onChange={(height) => resizeTexture('height', height)} />
           </div>
-          <p className="muted">{t("Size is a percentage of surface width/height. Editing a texture setting places one image instead of tiling it.")}</p>
-          <button type="button" className="btn btn--small btn--ghost" disabled={!value?.texture} onClick={() => reset('texture')}>{t("Reset to repeating texture")}</button>
+          <p className="muted">{t("Size is a percentage of surface width/height. Without a placement, the picture keeps its proportions inside the default area on the front; editing a setting stretches it to exactly this box.")}</p>
+          <button type="button" className="btn btn--small btn--ghost" disabled={!value?.texture} onClick={() => reset('texture')}>{t("Reset to default placement")}</button>
         </fieldset>
       )}
     </div>

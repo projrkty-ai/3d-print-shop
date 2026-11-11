@@ -1,23 +1,18 @@
-import { MongoClient } from 'mongodb';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { openDatabase, type Collections } from './db';
+import type { Storage } from './storage';
+import { openTestStorage } from './storage/testStorage';
 import type { OrderInput } from './domain/types';
 
-let mongo: MongoMemoryServer;
-let client: MongoClient;
-let db: Collections;
+let db: Storage;
+let stop: (() => Promise<void>) | undefined;
 
 beforeAll(async () => {
-  mongo = await MongoMemoryServer.create();
-  client = await MongoClient.connect(mongo.getUri());
-  db = openDatabase(client.db('localization'));
+  ({ storage: db, stop } = await openTestStorage('localization'));
 }, 120_000);
 
 afterAll(async () => {
-  await client?.close();
-  await mongo?.stop();
+  await stop?.();
 });
 
 afterEach(() => {
@@ -81,7 +76,7 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
     expect(body.details).toContain(`items.0.quantity: ${expected.builtin}`);
     const invalidStatus = await request(app).get('/api/orders?status=wrong')
       .set('Authorization', 'Bearer localization-test').expect(400);
-    expect(invalidStatus.body.error).toContain('pending, paid, printing, shipped, delivered, cancelled');
+    expect(invalidStatus.body.error).toContain('received, quoted, accepted, paid, queued, printing, done, shipped, delivered, rejected, cancelled');
   });
 
   it('localizes domain validation and new snapshots without translating product or customer data', async () => {
@@ -93,7 +88,7 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
     const { validateProduct, validateEngraving } = await import('./domain/utils/validation');
     const { decorationLayoutErrors, DEFAULT_TEXT_LAYOUT } = await import('./domain/utils/decorationLayout');
     const { summarizeConfiguration } = await import('./domain/utils/orderLines');
-    const { priceOrderItems } = await import('./orders');
+    const { priceCatalogItems } = await import('./orders/catalog');
     const { createApp } = await import('./app');
     const expected = messages[language];
     const product = createSeedProducts().find((p) => p.id === 'spiral-vase')!;
@@ -104,7 +99,7 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
     expect(validateEngraving('One\nTwo', { maxLength: 50, maxLines: 1 })).toBe(expected.engraving);
     expect(validateProduct({ ...product, name: '' })).toContain(expected.required);
     expect(decorationLayoutErrors({ text: { ...DEFAULT_TEXT_LAYOUT, centerX: -1 } })).toContain(expected.position);
-    const input: OrderInput = {
+    const input: Extract<OrderInput, { items: { productId: string }[] }> = {
       customer: {
         name: 'Customer Name', email: 'customer@example.com',
         address: { line1: 'Address', city: 'City', postalCode: '00-001', country: 'Country' },
@@ -112,21 +107,22 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
       items: [{ productId: product.id, customization, quantity: 1 }],
       customerNote: 'Original customer content',
     };
-    await db.products.replaceOne({ id: product.id }, product, { upsert: true });
+    if (!(await db.products.replace(product))) await db.products.insert(product);
     const app = createApp({ db, adminToken: 'localization-test' });
     const { body } = await request(app).post('/api/orders').send(input).expect(201);
     expect(body.currency).toBe('USD');
-    expect(body.status).toBe('pending');
+    expect(body.status).toBe('received');
     expect(body.customer).toEqual(input.customer);
     expect(body.customerNote).toBe(input.customerNote);
-    expect(body.items[0].productName).toBe(product.name);
-    expect(body.items[0].colorName).toBe('Original Color');
-    expect(body.items[0].priceLines[0].label).toMatch(new RegExp(`^${expected.print}`));
-    expect(body.items[0].priceLines[0].note).toContain(expected.fixedFee);
-    expect(body.items[0].priceLines[1]).toEqual({ label: `${expected.color}Original Color`, amount: 3 });
-    expect(body.total).toBe(35);
-    const stored = await db.orders.findOne({ id: body.id });
-    expect(stored?.items[0].priceLines).toEqual(body.items[0].priceLines);
+    const { model } = body.items[0];
+    expect(model.productName).toBe(product.name);
+    expect(model.colorName).toBe('Original Color');
+    expect(model.priceLines[0].label).toMatch(new RegExp(`^${expected.print}`));
+    expect(model.priceLines[0].note).not.toContain(expected.fixedFee);
+    expect(model.priceLines[1]).toEqual({ label: `${expected.color}Original Color`, amount: 3 });
+    expect(body.price).toEqual({ mode: 'fixed', handlingFee: 5, estimated: null, reviewed: null, total: 12.63 });
+    const stored = await db.orders.get(body.id);
+    expect(stored?.items[0].model).toEqual(model);
     vi.stubEnv('APP_LANGUAGE', language === 'pl' ? 'en' : 'pl');
     vi.resetModules();
     const { createApp: createOtherLanguageApp } = await import('./app');
@@ -142,9 +138,9 @@ describe.each(['en', 'pl'] as const)('%s localization', (language) => {
     };
     const summary = summarizeConfiguration(product, defaultCustomization(product));
     expect(summary.colorName).toBe(expected.multiColor);
-    expect(summary.parts?.[0]).toEqual({ name: 'Original Part', colorName: expected.original, colorHex: '#ffffff' });
+    expect(summary.parts?.[0]).toEqual({ key: 'body', name: 'Original Part', colorName: expected.original, colorHex: '#ffffff' });
     try {
-      priceOrderItems(input, new Map());
+      priceCatalogItems(input.items, new Map());
       expect.fail('Missing product must fail checkout');
     } catch (error) {
       expect(error).toMatchObject({ status: 400, details: [expected.unavailable] });

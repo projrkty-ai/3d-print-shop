@@ -1,0 +1,101 @@
+// Type declarations of the public, platform-neutral engine API (src/index.mjs).
+
+/** An Orca preset (machine / process / filament JSON). */
+export interface ProfilePreset {
+  name: string;
+  type: 'machine' | 'process' | 'filament' | string;
+  inherits?: string;
+  instantiation?: string;
+  compatible_printers?: string[];
+  [key: string]: unknown;
+}
+
+export class ProfileLibrary {
+  constructor(profiles?: ProfilePreset[]);
+  add(preset: ProfilePreset, source?: string): void;
+  /** Preset merged with its `inherits` chain. */
+  resolve(name: string): ProfilePreset;
+  /** Names of instantiable presets of a type. */
+  list(type: 'machine' | 'process' | 'filament'): string[];
+  defaultFilamentFor(printerName: string, filamentType?: string, vendor?: string): string | null;
+}
+
+export interface ModelObject {
+  id: string;
+  name: string;
+  extruder: number;
+  settings: Record<string, string>;
+  volumes: unknown[];
+  instances?: { x: number; y: number }[];
+}
+
+export interface LoadedModel {
+  objects: ModelObject[];
+  projectConfig: Record<string, unknown> | null;
+  /** plates of a Bambu/Orca project 3MF (empty for plain 3MF / STL) */
+  plates?: { id: number; name: string; instances: number }[];
+}
+
+export interface CalibrationData {
+  version: number;
+  global: Record<string, unknown>;
+  profiles: Record<string, Record<string, number>>;
+  [key: string]: unknown;
+}
+
+export interface EstimateOptions {
+  model: LoadedModel;
+  library?: ProfileLibrary;
+  printer?: string;
+  process?: string;
+  filament?: string | string[];
+  /** true / false, or null/undefined for "as configured" */
+  support?: boolean | null;
+  calibration?: CalibrationData | null;
+  /** Orca settings overriding the presets, e.g. { sparse_infill_density: '25%' } */
+  overrides?: Record<string, string | number>;
+  /** uniform scale of the plate (1 = original size) */
+  scale?: number;
+  copies?: number;
+  copies_spacing?: number;
+  instances?: { x: number; y: number }[];
+  /** return the generated G-code text in result.gcode */
+  gcode?: boolean;
+  modelName?: string;
+  onProgress?: (stage: string, fraction: number) => void;
+}
+
+export interface EstimateResult {
+  model?: string;
+  printer?: string;
+  process?: string;
+  filaments?: string[];
+  config_source: 'presets' | 'project';
+  support: boolean;
+  time_s: number;
+  /** Orca style, minutes truncated ("1h28m") */
+  time: string;
+  weight_g: number;
+  filament_length_m: number;
+  per_extruder: { extruder: number; weight_g: number; length_m: number }[];
+  layers: number;
+  first_layer_time_s: number;
+  tool_changes: number;
+  copies: number;
+  /** uniform scale the plate was sliced at */
+  scale: number;
+  breakdown: {
+    weight_g: { model: number; support: number; wipe_tower: number; custom_gcode: number };
+    time_s: { model: number; support: number; wipe_tower: number; tool_changes: number; travel_retract: number; start_end_gcode: number; cooling_slowdown: number };
+  };
+  calibration: Record<string, number | string>;
+  elapsed_ms: number;
+  gcode?: string;
+  _diag?: Record<string, number>;
+}
+
+export function estimate(options: EstimateOptions): EstimateResult;
+export function loadModelBytes(bytes: Uint8Array | ArrayBuffer, name: string, options?: { plate?: number }): LoadedModel;
+export function load3mf(bytes: Uint8Array | ArrayBuffer, options?: { plate?: number }): LoadedModel;
+export function loadStl(bytes: Uint8Array | ArrayBuffer, name?: string): LoadedModel;
+export function formatTime(seconds: number): string;

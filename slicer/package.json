@@ -1,0 +1,25 @@
+{
+  "name": "printforge-slicer-estimator",
+  "version": "1.0.0",
+  "description": "Slices 3MF/STL models with OrcaSlicer profiles and estimates print time and filament usage (Node.js CLI/API and a browser build)",
+  "private": true,
+  "type": "module",
+  "main": "src/index.mjs",
+  "bin": {
+    "slice-estimate": "slice.mjs"
+  },
+  "scripts": {
+    "slice": "node slice.mjs",
+    "calibrate": "node calibrate.mjs",
+    "verify": "node calibrate.mjs --verify-only",
+    "test": "node --test \"test/*.test.mjs\"",
+    "sync-frontend": "node scripts/sync-frontend.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "clipper-lib": "6.4.2",
+    "fflate": "0.8.2"
+  }
+}

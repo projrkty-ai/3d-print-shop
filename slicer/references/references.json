@@ -1,0 +1,18 @@
+{
+  "description": "OrcaSlicer 2.3 reference results used by calibrate.mjs (times/weights as shown by Orca). Paths are relative to this file.",
+  "references": [
+    { "name": "SliceTest", "model": "../../profiles/SliceTest.3mf", "table": "../../profiles/SliceTestTimes.txt",
+      "notes": "multi-part, multi-colour test plate (wipe tower, supports)" },
+    { "name": "podstawa-1", "model": "podstawa-1/model.3mf", "table": "podstawa-1/times.txt",
+      "notes": "single-colour round base with a star; Orca sliced it centred at (135.5, 136)",
+      "options": { "instances": [{ "x": 135.5, "y": 136 }] } },
+    { "name": "podstawa-9", "model": "podstawa-1/model.3mf", "table": "podstawa-9/times.txt",
+      "notes": "9 copies of podstawa-1 (centres taken from the Orca G-code EXCLUDE_OBJECT_DEFINE)",
+      "options": { "instances": [
+        { "x": 223.011, "y": 223.511 }, { "x": 223.011, "y": 136 }, { "x": 135.5, "y": 223.511 },
+        { "x": 135.5, "y": 136 }, { "x": 47.9902, "y": 223.511 }, { "x": 47.9902, "y": 136 },
+        { "x": 135.5, "y": 48.4902 }, { "x": 223.011, "y": 48.4902 }, { "x": 47.9902, "y": 48.4902 } ] } },
+    { "name": "podstawa-painted", "model": "podstawa-painted/model.3mf", "table": "podstawa-painted/times.txt",
+      "notes": "podstawa-1 painted with 3 filaments (MMU segmentation, ~115-230 tool changes)" }
+  ]
+}

@@ -27,7 +27,8 @@ vi.mock('../components/LazyProductPreview', () => ({
       data-color={props.color}
       data-text-color={props.engravingColor}
       data-parts={JSON.stringify(props.partColors)}
-      data-texture={props.textureDataUrl}
+      data-texture={props.textureUrl}
+      data-lettering={props.extrudedText ? JSON.stringify({ text: props.extrudedText.text, sizeMm: props.extrudedText.sizeMm, z: props.extrudedText.layout.z }) : undefined}
       data-layout={JSON.stringify(props.decorationLayout)}
     />
   ),
@@ -343,5 +344,257 @@ describe('per-plate product configurator', () => {
     expect(container.querySelectorAll('.plate-configurator')).toHaveLength(0);
     await act(async () => enterText(element('textarea'), 'Legacy'));
     expect(element('[data-preview="root"]').getAttribute('data-text')).toBe('Legacy');
+  });
+});
+
+describe('shop texture library', () => {
+  const marble = { id: 'marble', name: 'Marble', url: '/api/media-files/marble' };
+  const waves = { id: 'waves', name: 'Waves', url: '/api/media-files/waves' };
+
+  function textureChoice(name: string, scope: ParentNode = container): HTMLInputElement {
+    const label = Array.from(scope.querySelectorAll('label.texture-option'))
+      .find((option) => option.querySelector('.texture-option__name')?.textContent === name);
+    if (!label) throw new Error(`Missing texture choice: ${name}`);
+    return element<HTMLInputElement>('input', label);
+  }
+
+  async function uploadPicture(scope: ParentNode, dataUrl: string) {
+    vi.mocked(fileToResizedDataUrl).mockResolvedValueOnce(dataUrl);
+    const upload = element<HTMLInputElement>('input[type="file"]', scope);
+    Object.defineProperty(upload, 'files', { value: [new File(['image'], 'own.png', { type: 'image/png' })] });
+    await act(async () => upload.dispatchEvent(new Event('change', { bubbles: true })));
+  }
+
+  beforeEach(() => {
+    product.texture = { enabled: true, price: 7, options: [marble, waves], allowCustom: true };
+  });
+
+  it('previews a shop texture or own picture per plate and snapshots both in the cart', async () => {
+    await renderProduct();
+    const base = element<HTMLElement>('[aria-label="Configure plate: Base"]');
+    const lid = element<HTMLElement>('[aria-label="Configure plate: Lid"]');
+    expect(textureChoice('No texture', base).checked).toBe(true);
+    expect(base.querySelector('input[type="file"]')).toBeNull();
+    await act(async () => textureChoice('Marble', base).click());
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toBe(marble.url);
+    expect(element('[data-preview="2"]').hasAttribute('data-texture')).toBe(false);
+    expect(base.textContent).toContain('Picture texture: Marble');
+    await act(async () => textureChoice('Your picture', lid).click());
+    await uploadPicture(lid, 'data:image/png;base64,AQ==');
+    expect(element('[data-preview="2"]').getAttribute('data-texture')).toBe('data:image/png;base64,AQ==');
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toBe(marble.url);
+    expect(container.textContent).toContain('Marble, Custom picture');
+
+    await act(async () => element<HTMLButtonElement>('.summary__actions button').click());
+    const item = addItem.mock.calls[0]?.[0];
+    if (!item) throw new Error('The configured set was not added to the cart.');
+    expect(item.unitPrice).toBe(29 + 7);
+    expect(item.customization.plates?.['1']).toMatchObject({ textureId: 'marble', textureDataUrl: null });
+    expect(item.customization.plates?.['2']).toMatchObject({ textureDataUrl: 'data:image/png;base64,AQ==' });
+    expect(item.customization.plates?.['2']).not.toHaveProperty('textureId');
+    expect(item.plates?.map((plate) => plate.appearance?.texture)).toEqual([
+      { source: 'library', ...marble }, { source: 'custom' },
+    ]);
+    await act(async () => root.render(<ConfigurationDetails item={item} />));
+    const baseDetails = element('[aria-label="Plate configuration: Base"]');
+    expect(baseDetails.textContent).toContain('Shop texture: Marble');
+    expect(element<HTMLImageElement>('img', baseDetails).getAttribute('src')).toBe(marble.url);
+    expect(element('[aria-label="Plate configuration: Lid"]').textContent).toContain('Custom picture');
+  });
+
+  it('brings back the uploaded picture after trying shop textures, and removes all texture with No texture', async () => {
+    product.mesh = null;
+    await renderProduct();
+    await act(async () => textureChoice('Your picture').click());
+    await uploadPicture(container, 'data:image/png;base64,AA==');
+    await act(async () => textureChoice('Waves').click());
+    expect(element('[data-preview="root"]').getAttribute('data-texture')).toBe(waves.url);
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    await act(async () => textureChoice('Your picture').click());
+    expect(element('[data-preview="root"]').getAttribute('data-texture')).toBe('data:image/png;base64,AA==');
+    await act(async () => textureChoice('No texture').click());
+    expect(element('[data-preview="root"]').hasAttribute('data-texture')).toBe(false);
+    expect(element('fieldset:has(.texture-options) legend').textContent).not.toContain(':');
+  });
+
+  it('offers only shop textures when uploads are disallowed, and the plain upload without a library', async () => {
+    product.mesh = null;
+    product.texture.allowCustom = false;
+    await renderProduct();
+    expect(Array.from(container.querySelectorAll('.texture-option__name')).map((option) => option.textContent))
+      .toEqual(['No texture', 'Marble', 'Waves']);
+    expect(container.querySelector('input[type="file"]')).toBeNull();
+    await leaveProduct();
+    product.texture = { enabled: true, price: 7 };
+    await renderProduct();
+    expect(container.querySelector('label.texture-option')).toBeNull();
+    expect(container.querySelector('input[type="file"]')).not.toBeNull();
+    await leaveProduct();
+    product.texture = { enabled: true, price: 7, options: [], allowCustom: false };
+    await renderProduct();
+    expect(container.textContent).not.toContain('Picture texture');
+  });
+
+  it('resets a saved shop texture that the shop has since removed', async () => {
+    product.mesh = null;
+    await renderProduct();
+    await act(async () => textureChoice('Waves').click());
+    await leaveProduct();
+    product.texture.options = [marble];
+    await renderProduct();
+    expect(textureChoice('No texture').checked).toBe(true);
+    expect(element('[data-preview="root"]').hasAttribute('data-texture')).toBe(false);
+    await act(async () => element<HTMLButtonElement>('.summary__actions button').click());
+    expect(addItem.mock.calls[0]?.[0].customization).not.toHaveProperty('textureId');
+  });
+
+});
+
+describe('3D lettering', () => {
+  const lettering = {
+    x: 0, y: -48, z: 120, rotationDeg: 0, tiltDeg: 0, sizeMm: 14, depthMm: 1.5, lineSpacing: 1.2,
+    horizontalAlign: 'center' as const, verticalAlign: 'middle' as const, defaultText: 'Hello',
+  };
+
+  it('shows the suggestion, lets customers change text and size within bounds, and snapshots the result', async () => {
+    product.mesh!.plates[0].decorationLayout = { extrudedText: lettering };
+    await renderProduct();
+    const base = element<HTMLElement>('[aria-label="Configure plate: Base"]');
+    const lid = element<HTMLElement>('[aria-label="Configure plate: Lid"]');
+    expect(lid.querySelector('[aria-label="3D lettering text"]')).toBeNull();
+    const input = element<HTMLTextAreaElement>('[aria-label="3D lettering text"]', base);
+    expect(input.value).toBe('Hello');
+    expect(element('[data-preview="1"]').getAttribute('data-lettering')).toBe(JSON.stringify({ text: 'Hello', sizeMm: 14, z: 120 }));
+    expect(element('[data-preview="2"]').hasAttribute('data-lettering')).toBe(false);
+
+    await act(async () => enterText(input, 'Zażółć'));
+    const size = element<HTMLInputElement>('[aria-label="3D lettering size in millimeters"]', base);
+    expect([size.min, size.max]).toEqual(['7', '28']);
+    await act(async () => enterNumber(size, '20'));
+    expect(element('[data-preview="1"]').getAttribute('data-lettering')).toBe(JSON.stringify({ text: 'Zażółć', sizeMm: 20, z: 120 }));
+
+    await act(async () => element<HTMLButtonElement>('.summary__actions button').click());
+    const item = addItem.mock.calls[0]?.[0];
+    expect(item?.customization.plates?.['1']).toMatchObject({ extrudedText: 'Zażółć', extrudedSizeMm: 20 });
+    expect(item?.plates?.[0].appearance?.decorationLayout?.extrudedText).toEqual(lettering);
+    await act(async () => root.render(<ConfigurationDetails item={item!} />));
+    expect(element('[aria-label="Plate configuration: Base"]').textContent).toContain('“Zażółć” · 20 mm');
+
+    await renderProduct();
+    const reset = Array.from(element<HTMLElement>('[aria-label="Configure plate: Base"]').querySelectorAll('button'))
+      .find((button) => button.textContent === 'Reset to the suggested lettering');
+    await act(async () => reset?.click());
+    expect(element<HTMLTextAreaElement>('[aria-label="3D lettering text"]', element('[aria-label="Configure plate: Base"]')).value).toBe('Hello');
+  });
+
+  it('blocks ordering unsupported lettering characters and allows clearing the lettering', async () => {
+    product.mesh = null;
+    product.decorationLayout = { extrudedText: lettering };
+    await renderProduct();
+    await act(async () => enterText(element('[aria-label="3D lettering text"]'), '№5'));
+    expect(container.textContent).toContain('3D lettering supports Latin letters');
+    expect(element<HTMLButtonElement>('.summary__actions button').disabled).toBe(true);
+    await act(async () => enterText(element('[aria-label="3D lettering text"]'), ''));
+    expect(element('[data-preview="root"]').hasAttribute('data-lettering')).toBe(false);
+    expect(element<HTMLButtonElement>('.summary__actions button').disabled).toBe(false);
+    await act(async () => element<HTMLButtonElement>('.summary__actions button').click());
+    expect(addItem.mock.calls[0]?.[0].customization).toMatchObject({ extrudedText: '' });
+  });
+});
+
+describe('print variants', () => {
+  const variant = (id: string, label: string, nozzleMm = 0.4) => ({ id, label, nozzleMm, layerHeightMm: 0.2, material: 'PLA' as const, enabled: true });
+  beforeEach(() => {
+    product.slicing = [
+      { plateId: 1, variants: [variant('fine', 'Fine'), variant('fast', 'Fast', 0.6)], defaultVariantId: 'fast' },
+      { plateId: 2, variants: [variant('std', 'Standard')], defaultVariantId: 'std' },
+    ];
+    product.catalogPricing = {
+      ratesPerCm3: { PLA: 0.2145, PETG: 0.2184, ABS: 0.2158, ASA: 0.2236, TPU: 0.234, resin: 0.312 }, handlingFee: 5, updatedAt: null,
+      variantPrices: { '1:fine': 6.5, '1:fast': 3, '2:std': 1.5 },
+    };
+  });
+  const printLine = () => element('.summary__lines tbody tr').textContent;
+
+  it('lets customers choose how each plate is printed, with prices at the chosen size, and snapshots the choice', async () => {
+    await renderProduct();
+    const base = element<HTMLElement>('[aria-label="Configure plate: Base"]');
+    const lid = element<HTMLElement>('[aria-label="Configure plate: Lid"]');
+    expect(base.querySelectorAll('.variant-option')).toHaveLength(2);
+    expect(element('.variant-option.is-selected', base).textContent).toBe('Fast0.6 mm nozzle · 0.2 mm layers · PLA$3.00');
+    expect(lid.querySelectorAll('.variant-option')).toHaveLength(1);
+    expect(printLine()).toContain('$4.50');
+
+    await act(async () => element<HTMLInputElement>('input[value="fine"]', base).click());
+    expect(printLine()).toContain('$8.00');
+    expect(printLine()).toContain('Base: Fine ($6.50); Lid: Standard ($1.50)');
+
+    await act(async () => Array.from(container.querySelectorAll<HTMLButtonElement>('.size-preset'))
+      .find((button) => button.textContent?.startsWith('50%'))!.click());
+    expect(element('.variant-option.is-selected', base).textContent).toContain('$0.81');
+    expect(printLine()).toContain('$1.00');
+
+    await act(async () => element<HTMLButtonElement>('.summary__actions button').click());
+    const item = addItem.mock.calls[0][0];
+    expect(item.customization.plates?.[1].variantId).toBe('fine');
+    expect(item.plates?.map((plate) => plate.appearance?.printVariant?.label)).toEqual(['Fine', 'Standard']);
+    await act(async () => root.render(<ConfigurationDetails item={item} />));
+    expect(container.textContent).toContain('Print qualityFine');
+  });
+
+  it('keeps the choice when returning to the product', async () => {
+    await renderProduct();
+    await act(async () => element<HTMLInputElement>('input[value="fine"]').click());
+    await leaveProduct();
+    await renderProduct();
+    expect(element<HTMLInputElement>('input[value="fine"]').checked).toBe(true);
+    expect(printLine()).toContain('$8.00');
+  });
+});
+
+describe('scaling', () => {
+  it('sells fixed-size products at their original size without a size picker', async () => {
+    product.scaling = { enabled: false, minScale: 0.5, maxScale: 1.5 };
+    const { defaultCustomization } = await import('../utils/customization');
+    localStorage.setItem(`printforge.productDraft:${product.id}`, JSON.stringify({
+      version: 1, quantity: 1, customization: { ...defaultCustomization(product), dimensions: { widthMm: 10, depthMm: 10, heightMm: 18.8 } },
+    }));
+    await renderProduct();
+    expect(container.querySelector('[aria-label="Size as a percentage of the original"]')).toBeNull();
+    expect(element('.fixed-size').textContent).toBe('Size: 95.9 × 95.9 × 180 mm (printed at the original size)');
+    await act(async () => element<HTMLButtonElement>('.summary__actions button').click());
+    expect(addItem.mock.calls[0][0].customization.dimensions).toEqual({ widthMm: 95.9, depthMm: 95.9, heightMm: 180 });
+  });
+
+  it('offers only the sizes the shop allows', async () => {
+    product.scaling = { enabled: true, minScale: 0.6, maxScale: 1.4 };
+    await renderProduct();
+    const slider = element<HTMLInputElement>('[aria-label="Size as a percentage of the original"]');
+    expect([slider.min, slider.max]).toEqual(['60', '140']);
+    expect(Array.from(container.querySelectorAll('.size-preset__label')).map((label) => label.textContent)).toEqual(['Min', '75%', 'Original', '125%', 'Max']);
+    await act(async () => enterNumber(element<HTMLInputElement>('.dimensions input'), '50'));
+    expect(element('#dimensions-help').textContent).toBe('Choose a size from 60% to 140% of the original.');
+    expect(element<HTMLButtonElement>('.summary__actions button').disabled).toBe(true);
+  });
+
+  it('prices print variants at other sizes from the prices the shop sliced at the ends of the range', async () => {
+    product.scaling = { enabled: true, minScale: 0.6, maxScale: 1.4 };
+    const variant = (id: string, label: string) => ({ id, label, nozzleMm: 0.4, layerHeightMm: 0.2, material: 'PLA' as const, enabled: true });
+    product.slicing = [
+      { plateId: 1, variants: [variant('fine', 'Fine')], defaultVariantId: 'fine' },
+      { plateId: 2, variants: [variant('std', 'Standard')], defaultVariantId: 'std' },
+    ];
+    product.catalogPricing = {
+      ratesPerCm3: { PLA: 0.2145, PETG: 0.2184, ABS: 0.2158, ASA: 0.2236, TPU: 0.234, resin: 0.312 }, handlingFee: 5, updatedAt: null,
+      variantPrices: { '1:fine': 6.5, '2:std': 1.5 },
+      variantScalePrices: { '1:fine': [{ scale: 0.6, price: 2 }, { scale: 1.4, price: 16 }], '2:std': [{ scale: 0.6, price: 0.5 }, { scale: 1.4, price: 4 }] },
+    };
+    await renderProduct();
+    expect(element('.summary__lines tbody tr').textContent).toContain('$8.00');
+    await act(async () => Array.from(container.querySelectorAll<HTMLButtonElement>('.size-preset'))
+      .find((button) => button.textContent?.startsWith('Max'))!.click());
+    expect(element('.summary__lines tbody tr').textContent).toContain('$20.00');
+    expect(element('.summary__lines tbody tr').textContent).toContain('Base: Fine ($16.00); Lid: Standard ($4.00) at 140% of the original size');
+    expect(element('[aria-label="Configure plate: Base"] .variant-option__price').textContent).toBe('$16.00');
   });
 });

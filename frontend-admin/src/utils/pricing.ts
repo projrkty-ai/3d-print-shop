@@ -1,9 +1,12 @@
 import { t } from '../i18n';
 import { CURRENCY, LOCALE } from '../config';
 import type { ColorOption, Customization, Dimensions, PriceLine, Product, SurfaceCustomization } from '../types';
-import { formatDimensions, formatVolume, minUniformScale, scaleDimensions, scaledVolumeCm3 } from './sizing';
+import { formatDimensions, formatVolume, scaleDimensions, scaledVolumeCm3 } from './sizing';
+import { formatScale, printScale, scaleRange } from './scaling';
 import { includedProductPlates, plateParts, selectedPlateIds } from './meshPlates';
-import { customizationSurfaces } from './customization';
+import { customizationSurfaces, textureOption } from './customization';
+import { PRINT_MATERIALS, type PrintMaterial } from '../types';
+import { chosenVariant, offeredVariants, surfaceSlicing, usesVariantPricing, variantPriceAt } from './printVariants';
 
 export type { PriceLine };
 
@@ -14,23 +17,46 @@ export interface PriceBreakdown {
 
 const roundCents = (value: number) => Math.round(value * 100) / 100;
 
+/** Free-text names like "PLA+ (multi-color)" map to standard materials; unknown names use PLA. */
+export function catalogMaterial(name: string): PrintMaterial {
+  return PRINT_MATERIALS.find((material) => new RegExp(`\\b${material}\\b`, 'i').test(name)) ?? 'PLA';
+}
+
 /**
- * Material rate: the part of the original-size price not covered by the fixed fee,
- * spread over the base model's volume. This keeps the original size at exactly the base price.
+ * Current catalog rate, or the legacy base price minus fixed fee divided by original volume.
  */
 export function pricePerCm3(product: Product): number {
+  if (product.catalogPricing) return product.catalogPricing.ratesPerCm3[catalogMaterial(product.material)];
   return (product.basePrice - product.fixedFee) / product.model.volumeCm3;
 }
 
 export interface SizePrice {
   volumeCm3: number;
-  /** Fixed fee + material, rounded to cents. */
+  /** Rounded print price, excluding order handling for dynamic catalog products. */
   amount: number;
+  /** Sliced pricing: the print variant of every priced plate (or of the model) and its price at this size. */
+  variants?: { plate: string | null; label: string; price: number }[];
+  /** Uniform scale of the print (1 = original size). */
+  scale?: number;
 }
 
-/** Price of the bare print at the given size: fixed fee + material volume × rate. */
-export function sizePrice(product: Product, dims: Dimensions): SizePrice {
+/**
+ * Bare print at the selected volume; only legacy products include a per-print fixed fee.
+ * Products with sliced print variants cost the chosen variants' original-size prices, scaled
+ * with the volume (the default variants when no customization is given).
+ */
+export function sizePrice(product: Product, dims: Dimensions, customization?: Customization): SizePrice {
   const volumeCm3 = scaledVolumeCm3(product.model, dims);
+  if (usesVariantPricing(product)) {
+    const scale = printScale(product, dims);
+    const variants = customizationSurfaces(product, customization ?? ({} as Customization)).map(({ plate, choices }) => {
+      const variant = chosenVariant(product, plate, choices ?? {});
+      const price = variant ? variantPriceAt(product, plate?.id ?? null, variant, scale) ?? 0 : 0;
+      return { plate: plate?.name ?? null, label: variant?.label ?? '', price: roundCents(price) };
+    });
+    return { volumeCm3, amount: roundCents(variants.reduce((sum, variant) => sum + variant.price, 0)), variants, scale };
+  }
+  if (product.catalogPricing) return { volumeCm3, amount: roundCents(volumeCm3 * pricePerCm3(product)) };
   // Same as volume × pricePerCm3, but dividing last keeps exact cases (e.g. 50% → $8.375) exact.
   const material = ((product.basePrice - product.fixedFee) * volumeCm3) / product.model.volumeCm3;
   return { volumeCm3, amount: roundCents(product.fixedFee + material) };
@@ -38,13 +64,17 @@ export function sizePrice(product: Product, dims: Dimensions): SizePrice {
 
 /** Explains a print price, e.g. "$5.00 fixed fee + 11.9 cm³ × $0.284/cm³". */
 export function describeSizePrice(product: Product, price: SizePrice): string {
+  if (price.variants) {
+    const variants = price.variants.map(({ plate, label, price: amount }) => `${plate ? `${plate}: ` : ''}${label} (${formatPrice(amount)})`);
+    return t("{0} at {1} of the original size", variants.join('; '), formatScale(price.scale ?? 1));
+  }
   const material = `${formatVolume(price.volumeCm3)} × ${formatRate(pricePerCm3(product))}`;
-  return product.fixedFee > 0 ? t("{0} fixed fee + {1}", formatPrice(product.fixedFee), material) : material;
+  return !product.catalogPricing && product.fixedFee > 0 ? t("{0} fixed fee + {1}", formatPrice(product.fixedFee), material) : material;
 }
 
 /** Expects dimensions that already passed `validateDimensions`. */
 export function calculatePrice(product: Product, customization: Customization): PriceBreakdown {
-  const print = sizePrice(product, customization.dimensions);
+  const print = sizePrice(product, customization.dimensions, customization);
   const plateCount = product.mesh ? selectedPlateIds(product.mesh).length : 0;
   const lines: PriceLine[] = [
     {
@@ -70,8 +100,15 @@ export function calculatePrice(product: Product, customization: Customization): 
     }
   }
 
-  if (product.texture.enabled && surfaces.some(({ choices }) => choices.textureDataUrl)) {
-    lines.push({ label: t("Picture texture"), amount: product.texture.price });
+  const textures = surfaces.flatMap(({ choices }) => {
+    const option = textureOption(product, choices.textureId);
+    return option ? [{ name: option.name, library: true }]
+      : product.texture.enabled && choices.textureDataUrl ? [{ name: t("Custom picture"), library: false }] : [];
+  });
+  if (textures.length > 0) {
+    // Name the chosen shop textures; legacy orders with only an uploaded picture keep a plain line.
+    const note = textures.some(({ library }) => library) ? [...new Set(textures.map(({ name }) => name))].join(', ') : undefined;
+    lines.push({ label: t("Picture texture"), amount: product.texture.price, ...(note && { note }) });
   }
 
   const unitPrice = roundCents(lines.reduce((sum, line) => sum + line.amount, 0));
@@ -116,7 +153,17 @@ function colorLines(product: Product, customization: Customization): PriceLine[]
 
 /** Lowest price a customer can pay for the product (smallest size, cheapest color choice). */
 export function startingPrice(product: Product): number {
-  const smallest = sizePrice(product, scaleDimensions(product.model, minUniformScale(product.model)));
+  const smallestDims = scaleDimensions(product.model, scaleRange(product).min);
+  // Sliced products start with the cheapest offered variant of every plate.
+  const cheapest = usesVariantPricing(product)
+    ? customizationSurfaces(product, {} as Customization).reduce<Customization>((choices, { plate }) => {
+      const offered = offeredVariants(surfaceSlicing(product, plate));
+      const price = (id: string) => variantPriceAt(product, plate?.id ?? null, offered.find((v) => v.id === id)!, 1) ?? Infinity;
+      const best = offered.map((variant) => variant.id).sort((a, b) => price(a) - price(b))[0];
+      return plate ? { ...choices, plates: { ...choices.plates, [plate.id]: { variantId: best } as SurfaceCustomization } } : { ...choices, variantId: best };
+    }, {} as Customization)
+    : undefined;
+  const smallest = sizePrice(product, smallestDims, cheapest);
   const deltas = product.colors.map((c) => c.priceDelta);
   // Multi-color models can keep their file colors at no extra cost.
   const plates = includedProductPlates(product);

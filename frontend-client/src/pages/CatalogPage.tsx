@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { LoadState } from '../components/LoadState';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import { useProducts } from '../store/ProductsContext';
-import { formatPrice, startingPrice } from '../utils/pricing';
+import { defaultPrice, formatPrice } from '../utils/pricing';
 
 export function CatalogPage() {
   const { products, load, reload } = useProducts();
@@ -12,7 +12,7 @@ export function CatalogPage() {
   return (
     <div>
       <section className="hero">
-        <h1>{t("Made-to-order 3D prints")}</h1>
+        <h1>{t("Our design 3D prints")}</h1>
         <p>{t("Pick a design, choose its size and color, add your own engraving or picture texture — we print it just for you.")}</p>
       </section>
 
@@ -38,7 +38,7 @@ export function CatalogPage() {
                   ))}
                 </div>
                 <div className="product-card__footer">
-                  <span>{t("from")} {formatPrice(startingPrice(product))}</span>
+                  <span title={t("Price at the original size")}>{formatPrice(defaultPrice(product))}</span>
                   <span className="product-card__tags">
                     {product.engraving.enabled && <em>{t("Engravable")}</em>}
                     {product.texture.enabled && <em>{t("Texture")}</em>}

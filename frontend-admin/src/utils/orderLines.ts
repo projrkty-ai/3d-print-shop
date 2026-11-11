@@ -1,11 +1,12 @@
 import { t } from '../i18n';
-import type { AppearanceSummary, CartItem, Customization, DecorationLayout, MeshPart, Product, SurfaceCustomization } from '../types';
+import type { AppearanceSummary, CartItem, Customization, DecorationLayout, MeshPart, Product, SurfaceCustomization, TextureSummary } from '../types';
 import { engravingColor } from './pricing';
 import { formatDimensions } from './sizing';
-import { customizationSurfaces } from './customization';
+import { customizationSurfaces, textureOption } from './customization';
 import { decorationLayoutFor } from './decorationLayout';
+import { chosenVariant, summarizeVariant, surfaceSlicing, usesVariantPricing } from './printVariants';
 
-export type ConfigurationSummary = Pick<CartItem, 'sizeLabel' | 'colorName' | 'colorHex' | 'parts' | 'plates' | 'engravingColor' | 'decorationLayout'>;
+export type ConfigurationSummary = Pick<CartItem, 'sizeLabel' | 'colorName' | 'colorHex' | 'parts' | 'plates' | 'engravingColor' | 'decorationLayout' | 'texture' | 'printVariant'>;
 
 /**
  * Readable snapshot of a configured product, stored with cart items and orders so they
@@ -14,12 +15,19 @@ export type ConfigurationSummary = Pick<CartItem, 'sizeLabel' | 'colorName' | 'c
  */
 export function summarizeConfiguration(product: Product, customization: Customization): ConfigurationSummary {
   const surfaces = customizationSurfaces(product, customization);
-  const appearances = surfaces.map(({ choices, parts, plate }) => summarizeAppearance(product, choices, parts, decorationLayoutFor(product, plate)));
+  const appearances = surfaces.map(({ choices, parts, plate }) => {
+    const appearance = summarizeAppearance(product, choices, parts, decorationLayoutFor(product, plate));
+    const variant = usesVariantPricing(product) ? chosenVariant(product, plate, choices) : null;
+    return variant ? { ...appearance, printVariant: summarizeVariant(surfaceSlicing(product, plate), variant) } : appearance;
+  });
   const plates = surfaces.flatMap(({ plate }, i) => plate
     ? [{ id: plate.id, name: plate.name, objectCount: plate.objectCount, appearance: appearances[i] }]
     : []);
+  // Plates keep their variants in their appearances; the root only describes a model without plates.
+  const { printVariant, ...root } = appearances[0];
   return {
-    ...appearances[0],
+    ...root,
+    ...(plates.length === 0 && printVariant && { printVariant }),
     sizeLabel: formatDimensions(customization.dimensions),
     ...(plates.length > 0 && { plates }),
   };
@@ -27,18 +35,27 @@ export function summarizeConfiguration(product: Product, customization: Customiz
 
 function summarizeAppearance(product: Product, customization: SurfaceCustomization, parts: MeshPart[], layout?: DecorationLayout): AppearanceSummary {
   const textColor = engravingColor(product, customization);
+  const texture = summarizeTexture(product, customization);
   const common = {
     ...(textColor && { engravingColor: { name: textColor.name, hex: textColor.hex } }),
     ...(layout && { decorationLayout: structuredClone(layout) }),
+    ...(texture && { texture }),
   };
   if (parts.length > 0) {
     const choices = parts.map((part) => {
       const filament = product.colors.find((c) => c.id === customization.partColors[part.key]);
-      return { name: part.name, colorName: filament?.name ?? t("Original"), colorHex: filament?.hex ?? part.fileColor };
+      return { key: part.key, name: part.name, colorName: filament?.name ?? t("Original"), colorHex: filament?.hex ?? part.fileColor };
     });
     return { ...common, colorName: t("Multi-color"), colorHex: choices[0].colorHex, parts: choices };
   }
 
   const color = product.colors.find((c) => c.id === customization.colorId) ?? product.colors[0];
   return { ...common, colorName: color.name, colorHex: color.hex };
+}
+
+/** Snapshot of the applied texture; the customer's own picture stays in the customization itself. */
+function summarizeTexture(product: Product, customization: SurfaceCustomization): TextureSummary | undefined {
+  const option = textureOption(product, customization.textureId);
+  if (option) return { source: 'library', id: option.id, name: option.name, url: option.url };
+  return product.texture.enabled && customization.textureDataUrl ? { source: 'custom' } : undefined;
 }

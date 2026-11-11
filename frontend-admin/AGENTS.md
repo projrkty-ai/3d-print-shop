@@ -56,12 +56,27 @@ must never contain `ADMIN_TOKEN`; the key is entered by the administrator at sig
 | WYSIWYG description / product media / carousel preview | [src/components/DescriptionEditor.tsx](src/components/DescriptionEditor.tsx), [src/components/ProductMediaManager.tsx](src/components/ProductMediaManager.tsx), [src/components/ProductDescription.tsx](src/components/ProductDescription.tsx), [src/utils/productDescription.ts](src/utils/productDescription.ts) |
 | Model analysis / decoration controls | [src/pages/admin/ModelFileCard.tsx](src/pages/admin/ModelFileCard.tsx), [src/pages/admin/DecorationLayoutEditor.tsx](src/pages/admin/DecorationLayoutEditor.tsx) |
 | Interactive admin-only product preview | [src/pages/ProductPreviewPage.tsx](src/pages/ProductPreviewPage.tsx) |
-| Orders and cancel-safe fetching | [src/pages/admin/AdminOrderPage.tsx](src/pages/admin/AdminOrderPage.tsx), [src/pages/admin/AdminOrdersPage.tsx](src/pages/admin/AdminOrdersPage.tsx), [src/pages/admin/useAdminData.ts](src/pages/admin/useAdminData.ts) |
+| Unified orders and cancel-safe fetching | [src/pages/admin/AdminOrderPage.tsx](src/pages/admin/AdminOrderPage.tsx), [src/pages/admin/AdminOrdersPage.tsx](src/pages/admin/AdminOrdersPage.tsx), [src/pages/admin/useAdminData.ts](src/pages/admin/useAdminData.ts) |
+| Printer models and queues | [src/pages/admin/AdminPrinterModelsPage.tsx](src/pages/admin/AdminPrinterModelsPage.tsx), [src/pages/admin/AdminPrintersPage.tsx](src/pages/admin/AdminPrintersPage.tsx), [src/pages/admin/AdminPrinterQueuePage.tsx](src/pages/admin/AdminPrinterQueuePage.tsx) |
 | Snapshot display | [src/components/ConfiguredItem.tsx](src/components/ConfiguredItem.tsx) |
 | Local types, domain calculations, geometry and painting | [src/types.ts](src/types.ts), [src/config.ts](src/config.ts), [src/utils/](src/utils/) |
 | Styles / private test models | [src/index.css](src/index.css), [fixtures/models/](fixtures/models/) |
 
 ## Authentication and data safety
+
+The admin tabs include unified Orders, email templates, Print on Demand products,
+pricing, printers and printer models. Print options share the Pricing tab. Former
+custom/project-order list routes redirect to source-filtered Orders; former detail
+routes redirect to the unified detail page. Ready-to-print addresses redirect to
+Print on Demand. Preserve these redirects and active-tab states.
+Every order source shares processing, statuses, emails and the log book, while
+source-specific model loading and slicing remain distinct.
+The `/admin/slicer` tool estimates local STL/3MF files in a Web Worker without uploading
+or storing them. Its engine is a vendored copy refreshed by `npm run sync-frontend` in
+`../slicer`; do not edit generated engine files or import sibling application source.
+Product editors slice per-plate printer/process/filament matrices into print variants,
+including scaling endpoints. Order review slices the ordered model and settings;
+uploaded printer-model profile archives are shared by all printers of that model.
 
 - `/` redirects to `/admin`; `/product/:productId` previews remain behind `AdminLayout`.
   Never send the admin token to the shop via URL/query string, external link or build
@@ -131,6 +146,11 @@ must never contain `ADMIN_TOKEN`; the key is entered by the administrator at sig
   removes only the targeted override and keeps the other decoration intact.
 - Preview pricing is informational. The backend validates and reprices orders; product
   edits must not rewrite historical appearance/layout snapshots in existing orders.
+- Sliced products price selected print variants, interpolating measurements within
+  administrator-defined scaling bounds; unsliced products retain legacy pricing.
+  Keep variant matrices, scaling controls and payload validation synchronized.
+- Queue actions operate through authenticated APIs, preserve confirmation and failure
+  states, and show estimated timing with the one-hour break between prints.
 
 ## Rendering and implementation conventions
 

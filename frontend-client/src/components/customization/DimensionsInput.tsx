@@ -1,14 +1,12 @@
 import { t } from '../../i18n';
 import { PRINT_MAX_MM, PRINT_MIN_MM } from '../../config';
 import type { Dimensions, ModelSpec } from '../../types';
+import type { ScaleRange } from '../../utils/scaling';
 import {
   AXES,
   AXIS_LABELS,
   currentScale,
   formatDimensions,
-  maxUniformScale,
-  minUniformScale,
-  percentRange,
   resizeProportionally,
   scaleDimensions,
   type Axis,
@@ -19,6 +17,8 @@ interface Props {
   value: Dimensions;
   error: string | null;
   onChange: (dims: Dimensions) => void;
+  /** Scale factors the shop allows (within the printer's limits). */
+  range: ScaleRange;
   /** Price of the bare print at a given size, shown on the quick-pick buttons. */
   priceLabel: (dims: Dimensions) => string;
 }
@@ -28,15 +28,14 @@ const PRESET_SCALES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 const percent = (factor: number) => `${Math.round(factor * 100)}%`;
 
 /** Size picker that always keeps the model's proportions: editing one side rescales the others. */
-export function DimensionsInput({ model, value, error, onChange, priceLabel }: Props) {
-  const minScale = minUniformScale(model);
-  const maxScale = maxUniformScale(model);
-  const presets = [
-    ...PRESET_SCALES.filter((f) => f >= minScale && f <= maxScale && Math.abs(f - maxScale) > 0.02),
-    maxScale,
-  ];
+export function DimensionsInput({ model, value, error, onChange, priceLabel, range: scales }: Props) {
+  // Whole percents, rounded inwards so both ends can be ordered.
+  const range = { min: Math.ceil(scales.min * 100 - 1e-9), max: Math.floor(scales.max * 100 + 1e-9) };
+  const minScale = range.min / 100;
+  const maxScale = range.max / 100;
+  const inside = PRESET_SCALES.filter((f) => f > minScale + 0.02 && f < maxScale - 0.02);
+  const presets = [minScale, ...inside, ...(maxScale > minScale ? [maxScale] : [])];
   const scale = currentScale(model, value);
-  const range = percentRange(model);
   // The thumb can't go past the printable range, even if a typed size does (that shows an error).
   const sliderPercent = Math.min(range.max, Math.max(range.min, Math.round((scale ?? 1) * 100)));
 
@@ -69,7 +68,7 @@ export function DimensionsInput({ model, value, error, onChange, priceLabel }: P
               onClick={() => onChange(dims)}
             >
               <span className="size-preset__label">
-                {isMax ? t("Max") : factor === 1 ? t("Original") : percent(factor)}
+                {factor === 1 ? t("Original") : isMax ? t("Max") : factor === minScale ? t("Min") : percent(factor)}
               </span>
               <span className="size-preset__price">{priceLabel(dims)}</span>
             </button>
@@ -124,7 +123,7 @@ export function DimensionsInput({ model, value, error, onChange, priceLabel }: P
 
       <p id="dimensions-help" className={`field__help dimensions__help ${error ? 'is-error' : ''}`}>
         {error ??
-          t("Proportions match the original model — change any side and the others follow. Each side {value0}–{value1} mm (printer build volume {value2} × {value3} × {value4} mm).", { value0: PRINT_MIN_MM, value1: PRINT_MAX_MM, value2: PRINT_MAX_MM, value3: PRINT_MAX_MM, value4: PRINT_MAX_MM })}
+          t("Proportions match the original model — change any side and the others follow. Choose {value0}–{value1}% of the original size.", { value0: range.min, value1: range.max })}
       </p>
     </fieldset>
   );

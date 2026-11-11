@@ -25,9 +25,13 @@ const analysis: MeshAnalysis = {
 vi.mock('../../store/ProductsContext', () => ({
   useProducts: () => ({ getProduct: () => product, load: { status: 'ready' }, updateProduct, createProduct }),
 }));
+const auth = vi.hoisted(() => ({ signOut: () => undefined }));
+vi.mock('../../store/AdminAuthContext', () => ({ useAdminAuth: () => auth }));
 vi.mock('../../components/LazyProductPreview', () => ({
   LazyProductPreview: (props: ComponentProps<typeof ProductPreview>) => (
-    <div data-preview={props.meshPlate ?? 'root'} data-plates={JSON.stringify(props.meshPlates)} data-layout={JSON.stringify(props.decorationLayout)} />
+    <div data-preview={props.meshPlate ?? 'root'} data-plates={JSON.stringify(props.meshPlates)} data-layout={JSON.stringify(props.decorationLayout)}
+      data-texture={props.textureUrl ?? undefined}
+      data-lettering={props.extrudedText ? JSON.stringify({ text: props.extrudedText.text, sizeMm: props.extrudedText.sizeMm }) : undefined} />
   ),
 }));
 vi.mock('./ModelFileCard', () => ({
@@ -98,6 +102,10 @@ beforeEach(() => {
   updateProduct.mockClear();
   createProduct.mockClear();
   product = createSeedProducts()[0];
+  vi.spyOn(api, 'getCatalogPricing').mockResolvedValue({
+    ratesPerCm3: { PLA: 0.04875, PETG: 0.04992, ABS: 0.04914, ASA: 0.05148, TPU: 0.0546, resin: 0.0624 },
+    handlingFee: 5, updatedAt: null,
+  });
   product.engraving.enabled = true;
   product.texture.enabled = true;
   product.mesh = {
@@ -365,7 +373,7 @@ describe('admin decoration placement', () => {
     expect(JSON.parse(element('[data-preview]').getAttribute('data-layout')!)).toEqual({
       texture: { centerX: 50, centerY: 50, width: 25, height: 25 },
     });
-    await click('Reset to repeating texture');
+    await click('Reset to default placement');
     expect(element('[data-preview]').hasAttribute('data-layout')).toBe(false);
     await change('Text vertical anchor:', '75');
     await click('Replace model');
@@ -384,5 +392,225 @@ describe('admin decoration placement', () => {
     });
     await click('Save product');
     expect(updateProduct.mock.calls[0]?.[1].decorationLayout?.texture?.width).toBe(35);
+  });
+});
+
+describe('shop texture library', () => {
+  function libraryUpload(): HTMLInputElement {
+    return element<HTMLInputElement>('[aria-label="Shop textures"] input[type="file"]');
+  }
+  async function chooseFiles(files: File[]) {
+    const input = libraryUpload();
+    Object.defineProperty(input, 'files', { value: files, configurable: true });
+    await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  }
+  function button(label: string): HTMLButtonElement {
+    const found = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    if (!found) throw new Error(`Missing button: ${label}`);
+    return found;
+  }
+  const png = (name: string) => new File(['image'], name, { type: 'image/png' });
+
+  it('uploads, names, orders and removes shop textures and saves them with the upload setting', async () => {
+    const upload = vi.spyOn(api, 'uploadTextureImage')
+      .mockResolvedValueOnce({ url: '/api/media-files/oak' })
+      .mockResolvedValueOnce({ url: '/api/media-files/marble' })
+      .mockResolvedValueOnce({ url: '/api/media-files/waves' });
+    await renderEditor();
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toMatch(/^data:image\/svg\+xml/);
+    await chooseFiles([png('oak-wood_grain.png'), png('marble.png'), png('waves.png')]);
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(control('Texture 1 name').value).toBe('oak wood grain');
+    expect(control('Texture 2 name').value).toBe('marble');
+    // The newest texture is previewed straight away.
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toBe('/api/media-files/waves');
+    await change('Texture 2 name', 'Carrara marble');
+    await act(async () => button('Move texture Carrara marble earlier').click());
+    await act(async () => button('Remove texture waves').click());
+    expect(element('[data-preview="1"]').getAttribute('data-texture')).toMatch(/^data:image\/svg\+xml/);
+    await change('Preview texture', 'none');
+    expect(element('[data-preview="1"]').hasAttribute('data-texture')).toBe(false);
+    await act(async () => control('Let customers upload their own picture').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await click('Save product');
+    expect(updateProduct.mock.calls[0]?.[1].texture).toEqual({
+      enabled: true, price: 0, allowCustom: false,
+      options: [
+        { id: expect.stringMatching(/^texture-/), name: 'Carrara marble', url: '/api/media-files/marble' },
+        { id: expect.stringMatching(/^texture-/), name: 'oak wood grain', url: '/api/media-files/oak' },
+      ],
+    });
+  });
+
+  it('waits for uploads before saving and reports unusable files, failed uploads and missing texture sources', async () => {
+    let finish: ((value: { url: string }) => void) | undefined;
+    const upload = vi.spyOn(api, 'uploadTextureImage').mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    await renderEditor();
+    await chooseFiles([png('slow.png')]);
+    const save = Array.from(container.querySelectorAll('button')).find((node) => node.textContent === 'Save product')!;
+    expect(save.disabled).toBe(true);
+    await act(async () => finish?.({ url: '/api/media-files/slow' }));
+    expect(save.disabled).toBe(false);
+    expect(control('Texture 1 name').value).toBe('slow');
+
+    await chooseFiles([new File(['gif'], 'animated.gif', { type: 'image/gif' })]);
+    expect(container.querySelector('[aria-label="Shop textures"] [role="alert"]')?.textContent).toContain('animated.gif: choose a PNG, JPEG or WebP image');
+    upload.mockRejectedValueOnce(new ApiError(413, 'Request body is too large.'));
+    await chooseFiles([png('huge.png')]);
+    expect(container.querySelector('[aria-label="Shop textures"] [role="alert"]')?.textContent).toBe('Request body is too large.');
+    expect(upload).toHaveBeenCalledTimes(2);
+
+    await act(async () => button('Remove texture slow').click());
+    await act(async () => control('Let customers upload their own picture').dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    await click('Save product');
+    expect(updateProduct).not.toHaveBeenCalled();
+    expect(element('[role="alert"]').textContent).toContain('Offer at least one shop texture or let customers upload their own picture.');
+  });
+
+});
+
+describe('3D lettering editor', () => {
+  function textarea(label: string): HTMLTextAreaElement {
+    const wrapper = Array.from(container.querySelectorAll('label')).find((node) => node.textContent?.startsWith(label));
+    const field = wrapper?.querySelector('textarea');
+    if (!field) throw new Error(`Missing textarea: ${label}`);
+    return field;
+  }
+
+  it('adds lettering per plate with point, direction, size and suggested text, then saves and removes it', async () => {
+    await renderEditor();
+    expect(element('[data-preview="1"]').hasAttribute('data-lettering')).toBe(false);
+    await click('+ Add 3D lettering');
+    // Suggested by the model: front face, half height, ~12% of the height as size.
+    await act(async () => {
+      const field = textarea('Suggested text');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(field, 'Dla Ani');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(element('[data-preview="1"]').getAttribute('data-lettering')).toBe(JSON.stringify({ text: 'Dla Ani', sizeMm: 22 }));
+    await change('X (mm)', '10');
+    await change('Z (mm)', '120');
+    await change('Facing rotation', '90');
+    await change('Tilt', '45');
+    await change('Size (mm)', '15');
+    await change('Line spacing', '1.5');
+    await change('Vertical alignment', 'top');
+    expect(element('[data-preview="1"]').getAttribute('data-lettering')).toBe(JSON.stringify({ text: 'Dla Ani', sizeMm: 15 }));
+    await click('Save product');
+    expect(updateProduct.mock.calls[0]?.[1].mesh?.plates[0].decorationLayout?.extrudedText).toEqual({
+      x: 10, y: -47.9, z: 120, rotationDeg: 90, tiltDeg: 45, sizeMm: 15, depthMm: 1.5, lineSpacing: 1.5,
+      horizontalAlign: 'center', verticalAlign: 'top', defaultText: 'Dla Ani',
+    });
+    expect(updateProduct.mock.calls[0]?.[1].mesh?.plates[1].decorationLayout).toBeUndefined();
+
+    await click('Remove 3D lettering');
+    expect(element('[data-preview="1"]').hasAttribute('data-lettering')).toBe(false);
+    await click('Save product');
+    expect(updateProduct.mock.calls[1]?.[1].mesh?.plates[0].decorationLayout).toBeUndefined();
+  });
+
+  it('keeps invalid lettering from being saved, with a clear message', async () => {
+    await renderEditor();
+    await click('+ Add 3D lettering');
+    await change('Z (mm)', '900');
+    await act(async () => {
+      const field = textarea('Suggested text');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(field, '№');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await click('Save product');
+    expect(updateProduct).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Base: 3D lettering: the Z position must be between −500 and 500 mm.');
+    expect(container.textContent).toContain('3D lettering suggested text:');
+  });
+});
+
+describe('print variants in the product editor', () => {
+  const variant = (id: string, printMinutes: number, grams: number) => ({
+    id, label: `Variant ${id}`, nozzleMm: 0.4, layerHeightMm: 0.2, material: 'PLA' as const, enabled: true,
+    presets: { printer: 'Snapmaker U1 (0.4 nozzle)', process: '0.20 Standard @Snapmaker U1 (0.4 nozzle)', filament: 'Generic PLA @U1 0.4 nozzle' },
+    measurements: { printMinutes, filaments: [{ material: 'PLA' as const, grams }] },
+    // sliced at the ends of the scale range too: time ∝ scale², filament ∝ scale³
+    scaled: [0.5, 1.2].map((scale) => ({
+      scale, measurements: { printMinutes: printMinutes * scale ** 2, filaments: [{ material: 'PLA' as const, grams: grams * scale ** 3 }] },
+    })),
+  });
+  const entry = (plateId: number, variants: ReturnType<typeof variant>[]) => ({
+    plateId, matrix: { printers: [], processes: [], filaments: [] }, support: false, overrides: {}, variants, defaultVariantId: variants[0].id,
+  });
+
+  beforeEach(() => {
+    product.catalogPricing = {
+      ratesPerCm3: { PLA: 0.04875, PETG: 0.04992, ABS: 0.04914, ASA: 0.05148, TPU: 0.0546, resin: 0.0624 }, handlingFee: 5, updatedAt: null,
+      hourlyRate: 2, filamentPricePerKg: { PLA: 25, PETG: 28, ABS: 26, ASA: 32, TPU: 40, resin: 60 },
+    };
+    // 2 h + 100 g → $6.50 and 30 min + 20 g → $1.50 at the original size
+    product.slicing = [entry(1, [variant('fine', 120, 100)]), entry(2, [variant('std', 30, 20)])];
+    product.scaling = { enabled: true, minScale: 0.5, maxScale: 1.2 };
+  });
+  const exampleRow = (label: string) => Array.from(container.querySelectorAll('.price-examples tbody tr')).find((row) => row.textContent?.startsWith(label));
+
+  it('prices the examples with the default variants and saves the variants with the product', async () => {
+    await renderEditor();
+    expect(container.textContent).toContain('Prices with the default print variants');
+    expect(exampleRow('Original')?.textContent).toContain('$8.00');
+    // 50%: 30 min + 12.5 g and 7.5 min + 2.5 g; 120%: 172.8 min + 172.8 g and 43.2 min + 34.56 g
+    expect(exampleRow('Smallest')?.textContent).toMatch(/\(50%\).*\$1\.6[12]/);
+    expect(exampleRow('Largest')?.textContent).toMatch(/\(120%\).*\$12\.3[789]/);
+    expect(container.textContent).toContain('Variants of Base');
+    expect(container.textContent).toContain('Each variant is sliced at 100%, 50%, 120%.');
+    await click('Save product');
+    expect(updateProduct.mock.calls[0][1].slicing?.map((slicing) => slicing.variants[0].id)).toEqual(['fine', 'std']);
+    expect(updateProduct.mock.calls[0][1].scaling).toEqual({ enabled: true, minScale: 0.5, maxScale: 1.2 });
+  });
+
+  it('drops the variants of a replaced model file, which need slicing again', async () => {
+    vi.spyOn(api, 'uploadModelFile').mockResolvedValue({ url: '/api/model-files/permanent' });
+    await renderEditor();
+    await click('Replace model');
+    expect(container.textContent).toContain('No variants sliced for Base yet.');
+    expect(container.textContent).not.toContain('Prices with the default print variants');
+    await click('Save product');
+    expect(updateProduct.mock.calls[0][1].slicing).toBeUndefined();
+  });
+});
+
+describe('scaling', () => {
+  const number = (label: string) => control(label) as HTMLInputElement;
+
+  it('offers older products in every printable size and saves the range the admin sets', async () => {
+    await renderEditor();
+    expect(container.textContent).not.toContain('Base model & pricing');
+    // 95.9 × 95.9 × 180 mm: 5 mm … 270 mm per side
+    expect((control('Customers can choose the print size') as HTMLInputElement).checked).toBe(true);
+    expect(number('Smallest scale (%)').value).toBe('6');
+    expect(number('Largest scale (%)').value).toBe('150');
+    await change('Smallest scale (%)', '40');
+    await change('Largest scale (%)', '160');
+    await click('Save product');
+    expect(updateProduct).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('At the largest scale the model must fit 270 mm: use at most 150%.');
+    await change('Largest scale (%)', '125');
+    await click('Save product');
+    expect(updateProduct.mock.calls[0][1].scaling).toEqual({ enabled: true, minScale: 0.4, maxScale: 1.25 });
+  });
+
+  it('sells fixed-size products at the original size only and keeps the range printable for a new model', async () => {
+    product.scaling = { enabled: false, minScale: 0.5, maxScale: 1.5 };
+    await renderEditor();
+    expect(container.textContent).toContain('Customers order the original size only.');
+    expect(container.querySelectorAll('.price-examples tbody tr')).toHaveLength(1);
+    await act(async () => (control('Customers can choose the print size') as HTMLInputElement).click());
+    expect(number('Largest scale (%)').value).toBe('150');
+    // the replacement is 110 × 110 × 200 mm: at most 135%
+    await click('Replace model');
+    expect(number('Largest scale (%)').value).toBe('135');
+  });
+
+  it('creates new products at their original size only', async () => {
+    await renderEditor('/admin/products/new');
+    expect((control('Customers can choose the print size') as HTMLInputElement).checked).toBe(false);
+    expect(container.querySelectorAll('.scaling input[type="number"]')).toHaveLength(4);
   });
 });

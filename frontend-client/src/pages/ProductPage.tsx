@@ -9,16 +9,18 @@ import { useCart } from '../store/CartContext';
 import { useProducts } from '../store/ProductsContext';
 import { useProductDraft } from '../store/useProductDraft';
 import type { Customization, Product, SurfaceCustomization } from '../types';
-import { customizationSurfaces, normalizeCustomization, normalizeCustomizationText } from '../utils/customization';
+import { customizationSurfaces, extrudedTextChoice, normalizeCustomization, normalizeCustomizationText } from '../utils/customization';
 import { summarizeConfiguration } from '../utils/orderLines';
 import { calculatePrice, engravingColor, formatPrice, sizePrice } from '../utils/pricing';
-import { formatDimensions, nearestPrintable, previewScale, roundMm, validateDimensions } from '../utils/sizing';
-import { customizationEngravingErrors } from '../utils/validation';
+import { formatDimensions, previewScale, roundMm } from '../utils/sizing';
+import { nearestAllowed, printScale, productDimensionsError, scaleRange, scalingEnabled } from '../utils/scaling';
+import { customizationEngravingErrors, customizationExtrudedTextErrors } from '../utils/validation';
 import { LoadState } from '../components/LoadState';
 import { NotFoundPage } from './NotFoundPage';
 import { includedProductPlates } from '../utils/meshPlates';
 import { decorationLayoutFor } from '../utils/decorationLayout';
 import { ProductDescription } from '../components/ProductDescription';
+import { appliedTextureUrl } from '../utils/texture';
 
 export function ProductPage() {
   const { productId } = useParams();
@@ -53,13 +55,22 @@ function ProductConfigurator({ product }: { product: Product }) {
     const filament = product.colors.find((c) => c.id === customization.partColors[part.key]);
     return { part, colorName: filament?.name ?? t("Original"), colorHex: filament?.hex ?? part.fileColor };
   });
-  const dimensionError = validateDimensions(customization.dimensions);
+  const dimensionError = productDimensionsError(product, customization.dimensions);
   const engravingErrors = customizationEngravingErrors(product, customization);
+  const extrudedErrors = customizationExtrudedTextErrors(product, customization);
+  const textErrorCount = engravingErrors.length + extrudedErrors.length;
+  /** The lettering drawn on a surface, with the model size its placement refers to. */
+  const letteringFor = (choices: SurfaceCustomization, plate?: (typeof includedPlates)[number]) => {
+    const choice = extrudedTextChoice(decorationLayoutFor(product, plate), choices);
+    return choice && { layout: choice.lettering, text: choice.text, sizeMm: choice.sizeMm, modelMm: plate?.model ?? product.model };
+  };
   // No price while the size is invalid (e.g. a field is empty or over the build volume).
   const breakdown = dimensionError ? null : calculatePrice(product, customization);
   // Keep the preview steady while the customer is mid-way through typing a size.
-  const shownDimensions = nearestPrintable(product.model, customization.dimensions);
+  const shownDimensions = nearestAllowed(product, customization.dimensions);
   const scale = previewScale(product.model, shownDimensions);
+  // Print variant prices follow the size the customer entered (none while it is invalid).
+  const printSize = dimensionError ? null : printScale(product, customization.dimensions);
 
   const update = (patch: Partial<Customization>) => {
     setDraft((prev) => ({ ...prev, ...patch }));
@@ -75,7 +86,7 @@ function ProductConfigurator({ product }: { product: Product }) {
   }
 
   function handleAddToCart() {
-    if (!breakdown || engravingErrors.length > 0) return;
+    if (!breakdown || textErrorCount > 0) return;
     addItem({
       productId: product.id,
       productName: product.name,
@@ -105,6 +116,7 @@ function ProductConfigurator({ product }: { product: Product }) {
 
       <div className="product__details" aria-label={t("Order configuration")}>
         <p className="product__price">{breakdown ? formatPrice(breakdown.unitPrice) : '—'}</p>
+        {product.catalogPricing && <p className="muted">{t("Handling fee per order")}: {formatPrice(product.catalogPricing.handlingFee)}</p>}
         <div className="product__media product__media--plates">
         {includedPlates.length === 0 ? <ProductPreview
           shape={product.shape}
@@ -118,8 +130,9 @@ function ProductConfigurator({ product }: { product: Product }) {
           caption={formatDimensions(shownDimensions)}
           engravingText={customization.engravingText}
           engravingFont={customization.engravingFont}
-          textureDataUrl={customization.textureDataUrl}
+          textureUrl={appliedTextureUrl(product, customization)}
           decorationLayout={decorationLayoutFor(product)}
+          extrudedText={letteringFor(customization)}
         /> : surfaces.map(({ plate, choices, parts: localParts }) => {
           if (!plate) return null;
           const plateColor = product.colors.find((option) => option.id === choices.colorId)!;
@@ -145,16 +158,21 @@ function ProductConfigurator({ product }: { product: Product }) {
                 caption={caption}
                 engravingText={choices.engravingText}
                 engravingFont={choices.engravingFont}
-                textureDataUrl={choices.textureDataUrl}
+                textureUrl={appliedTextureUrl(product, choices)}
                 decorationLayout={decorationLayoutFor(product, plate)}
+                extrudedText={letteringFor(choices, plate)}
               />
               <SurfaceOptions
                 product={product}
                 parts={localParts}
                 value={choices}
                 error={engravingErrors.find((error) => error.plateId === plate.id)?.message ?? null}
+                decorationLayout={decorationLayoutFor(product, plate)}
+                extrudedError={extrudedErrors.find((error) => error.plateId === plate.id)?.message ?? null}
                 onChange={(patch) => updatePlate(plate.id, patch)}
                 perSet
+                plate={plate}
+                printScale={printSize}
               />
             </section>
           );
@@ -169,20 +187,30 @@ function ProductConfigurator({ product }: { product: Product }) {
               {t("Size is the maximum extent on each axis across the set. Configure colors, text and texture in each plate's panel. Engraving, colored engraving and picture texture surcharges are each charged once per set, not per plate.")}
             </p>
           )}
-          <DimensionsInput
-            model={product.model}
-            value={customization.dimensions}
-            error={dimensionError}
-            onChange={(dimensions) => update({ dimensions })}
-            priceLabel={(dims) => formatPrice(sizePrice(product, dims).amount)}
-          />
+          {scalingEnabled(product) ? (
+            <DimensionsInput
+              model={product.model}
+              value={customization.dimensions}
+              error={dimensionError}
+              onChange={(dimensions) => update({ dimensions })}
+              priceLabel={(dims) => formatPrice(sizePrice(product, dims, customization).amount)}
+              range={scaleRange(product)}
+            />
+          ) : (
+            <p className="fixed-size">
+              <strong>{t("Size")}:</strong> {formatDimensions(product.model)} <span className="muted">{t("(printed at the original size)")}</span>
+            </p>
+          )}
           {includedPlates.length === 0 && (
             <SurfaceOptions
               product={product}
               parts={parts}
               value={customization}
               error={engravingErrors[0]?.message ?? null}
+              decorationLayout={decorationLayoutFor(product)}
+              extrudedError={extrudedErrors.find((error) => error.plateId === null)?.message ?? null}
               onChange={update}
+              printScale={printSize}
             />
           )}
         </section>
@@ -230,7 +258,7 @@ function ProductConfigurator({ product }: { product: Product }) {
               type="button"
               className="btn btn--primary btn--large"
               onClick={handleAddToCart}
-              disabled={!breakdown || engravingErrors.length > 0}
+              disabled={!breakdown || textErrorCount > 0}
             >
               {t("Add to cart")}
             </button>

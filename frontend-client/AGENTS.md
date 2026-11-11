@@ -63,6 +63,16 @@ Tests pin English; maintain dedicated Polish coverage when adding messages.
 
 Fixtures and seed data support tests; runtime products and model files come from the API.
 
+Keep `/print-your-model`, `/search` and Print on Demand alongside the catalog and cart,
+including legacy ready-to-print redirects. Catalog, upload, external-project and
+Print on Demand submissions use the unified order contract while retaining their
+source-specific drafts and models. Custom uploads use `CustomPrintContext` and browser
+slicing with offered profiles; estimates are not authoritative quotes.
+Shared customer inputs accept functional updates; adapt value-based callbacks at
+project dialogs rather than dropping either flow.
+The browser slicer is a vendored local copy refreshed by `npm run sync-frontend` in
+`../slicer`; never edit generated engine modules or import sibling source.
+
 ## Customer behavior to preserve
 
 - Keep description/carousel on the left and all configuration/previews/cart actions on
@@ -89,6 +99,10 @@ Fixtures and seed data support tests; runtime products and model files come from
 - Display pricing must retain set-level fixed/engraving/colored-engraving/texture fees
   and once-per-filament surcharges. Checkout can return recalculated prices; keep its
   price-change explanation. There is no online payment flow to claim as completed.
+- Sliced products select a print variant per plate and interpolate measurements within
+  administrator-defined scaling bounds. Unsliced products preserve legacy pricing.
+  Retain variant choices through drafts/cart normalization and validate unavailable
+  variants rather than treating browser estimates as server-approved prices.
 - Drafts use `printforge.productDraft:<id>`, version 1; cart uses `printforge.cart`.
   Preserve state per product across navigation, reload and adding to cart, including
   quantity and every plate's texture. Never restore the transient "added" success message.

@@ -910,6 +910,86 @@ code,
   gap: 0.5rem;
 }
 
+/* Picture texture choices: none, shop textures and the customer's own picture. */
+.texture-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 0.6rem;
+  margin-bottom: 0.75rem;
+}
+
+.texture-option {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.8rem;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.texture-option:hover {
+  border-color: var(--accent);
+}
+
+.texture-option.is-selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+}
+
+.texture-option:has(input:focus-visible) {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 2px;
+}
+
+.texture-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.texture-option__image {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 1.6rem;
+}
+
+.texture-option__image--empty {
+  background: repeating-linear-gradient(135deg, var(--bg) 0 8px, var(--border) 8px 9px);
+}
+
+.texture-option__image--upload {
+  border: 2px dashed #cbd2dd;
+}
+
+.texture-option__name {
+  overflow-wrap: anywhere;
+  line-height: 1.2;
+}
+
+.config-details__texture {
+  width: 28px;
+  height: 28px;
+  margin-right: 0.4rem;
+  vertical-align: middle;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+}
+
 .summary {
   padding: 1.25rem;
   background: var(--surface);
@@ -1011,7 +1091,29 @@ code,
   height: 100%;
   object-fit: cover;
   mix-blend-mode: multiply;
-  filter: grayscale(1);
+}
+
+/* Rendered model of the configured print (colors, engraving and texture). */
+.cart-item__swatch--model {
+  background: #eef1f5;
+}
+
+.cart-item__swatch--model img {
+  mix-blend-mode: normal;
+}
+
+.item-thumbnail__open {
+  display: block;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  cursor: zoom-in;
+}
+
+.item-thumbnail__open:focus-visible {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 2px;
 }
 
 .cart-item__name {
@@ -1690,6 +1792,7 @@ textarea {
 
 .admin-tabs {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.25rem;
   margin-bottom: 1.5rem;
@@ -1746,7 +1849,7 @@ textarea {
   white-space: nowrap;
 }
 
-.status-badge--pending {
+.status-badge--received {
   background: var(--warning-bg);
   color: var(--warning);
 }
@@ -1759,6 +1862,16 @@ textarea {
 .status-badge--printing {
   background: #f1e9fc;
   color: #6d3fb8;
+}
+
+.status-badge--queued {
+  background: #fdf3e1;
+  color: #94620b;
+}
+
+.status-badge--done {
+  background: #e3f4ea;
+  color: #236b40;
 }
 
 .status-badge--shipped {
@@ -1774,6 +1887,148 @@ textarea {
 .status-badge--cancelled {
   background: #eef0f4;
   color: var(--muted);
+}
+
+.status-badge--quoted {
+  background: var(--info-bg);
+  color: #2b5cb8;
+}
+
+.status-badge--accepted {
+  background: #e8f5ec;
+  color: #2f7a4a;
+}
+
+/* Where an order's models come from. */
+.order-source {
+  display: inline-block;
+  padding: 0.1rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.source-badge--thingiverse {
+  background: #196ef0;
+  color: #fff;
+}
+
+.source-badge--printables {
+  background: #e8571a;
+  color: #fff;
+}
+
+.source-badge--makerworld {
+  background: #00875a;
+  color: #fff;
+}
+
+/* ---------- Project orders ---------- */
+
+.project-summary {
+  display: grid;
+  grid-template-columns: 9rem 1fr;
+  gap: 1rem;
+}
+
+.project-summary__thumb {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 10px;
+  overflow: hidden;
+  background: linear-gradient(160deg, #f0f3f7, #e2e7ee);
+  color: #c7cdd8;
+  font-size: 2.5rem;
+}
+
+.project-summary__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.order-detail .project-summary__title {
+  margin: 0.35rem 0 0.25rem;
+  font-size: 1.1rem;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.project-summary p {
+  margin: 0.15rem 0;
+}
+
+.project-summary__description {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.project-files__name {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+.project-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.project-item {
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.project-item__file {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-weight: 600;
+}
+
+.project-item__file img {
+  width: 2.25rem;
+  height: 2.25rem;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.project-item .project-preferences {
+  margin-top: 0.6rem;
+}
+
+.project-filaments {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.project-preferences {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1.25rem;
+  margin: 0;
+}
+
+.project-preferences dt {
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.project-preferences dd {
+  margin: 0;
+  white-space: pre-wrap;
 }
 
 .order-detail h1 {
@@ -1819,15 +2074,16 @@ textarea {
 
 .order-item {
   display: grid;
-  grid-template-columns: 64px 1fr auto;
+  grid-template-columns: 96px 1fr auto;
+  align-items: start;
   gap: 1rem;
   padding: 1rem 0;
   border-bottom: 1px solid var(--border);
 }
 
 .order-item .cart-item__swatch {
-  width: 64px;
-  height: 64px;
+  width: 96px;
+  height: 96px;
 }
 
 .order-item__total {
@@ -1843,6 +2099,62 @@ textarea {
 .order-item__total strong {
   font-size: 1rem;
   color: var(--text);
+}
+
+/* Shop texture library in the product editor. */
+.texture-library {
+  display: grid;
+  gap: 0.6rem;
+  margin: 1rem 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.texture-library h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.texture-library p {
+  margin: 0;
+}
+
+.texture-library > .btn {
+  justify-self: start;
+}
+
+.texture-library__list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.texture-library__item {
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.texture-library__item img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.texture-library__item .field {
+  margin: 0;
+}
+
+.texture-library__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
 }
 
 .order-item__texture {
@@ -1887,11 +2199,1253 @@ textarea {
   }
 
   .order-item {
-    grid-template-columns: 48px 1fr;
+    grid-template-columns: 64px 1fr;
+  }
+
+  .order-item .cart-item__swatch {
+    width: 64px;
+    height: 64px;
   }
 
   .order-item__total {
     grid-column: 2;
     align-items: flex-start;
   }
+}
+
+/* Ordered print in 3D with its order parameters (admin order page). */
+.viewer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 2rem 1rem;
+  overflow-y: auto;
+  background: rgba(16, 24, 40, 0.55);
+}
+
+.viewer {
+  width: min(1200px, 100%);
+  margin: 0;
+}
+
+.viewer__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.viewer__header h2,
+.viewer__header p {
+  margin: 0;
+}
+
+.viewer__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr);
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.viewer__models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.viewer__models > p {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/* One model fills the column; plates of a set share it, wrapping below 260px each. */
+.viewer__model {
+  flex: 1 1 260px;
+  min-width: 0;
+  margin: 0;
+}
+
+.viewer__model figcaption {
+  margin-bottom: 0.4rem;
+}
+
+.viewer__details h3 {
+  margin-top: 0;
+}
+
+.viewer__details .summary__lines {
+  margin-top: 1rem;
+}
+
+@media (max-width: 860px) {
+  .viewer__layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Orders of customers' own models ---------- */
+
+.status-badge--rejected {
+  background: var(--error-bg);
+  color: var(--danger);
+}
+
+.custom-files {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.custom-file__name {
+  overflow-wrap: anywhere;
+}
+
+/* Miniature and description of a model: one click target opening the 3D viewer. */
+.custom-file__open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.9rem;
+  min-width: 0;
+  margin: -0.4rem;
+  padding: 0.4rem;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: zoom-in;
+  transition: background 0.15s;
+}
+
+.custom-file__open:hover:not(:disabled) {
+  background: #f2fafa;
+}
+
+.custom-file__open:focus-visible {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 1px;
+}
+
+.custom-file__open:disabled {
+  cursor: default;
+}
+
+.custom-file__thumb {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 88px;
+  height: 88px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #eef1f5;
+}
+
+.custom-file__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.custom-file__info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.custom-file__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  font-size: 0.85rem;
+}
+
+.custom-file__warning {
+  color: var(--warning);
+  font-size: 0.85rem;
+}
+
+.custom-file__copies {
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-table__number {
+  white-space: nowrap;
+}
+
+.admin-table__files {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .custom-file {
+    flex-wrap: wrap;
+  }
+
+  .custom-file .model-file__actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* ---------- Print options (qualities and filaments for print requests) ---------- */
+
+.print-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 1rem;
+  font-size: 0.85rem;
+}
+
+.print-choices__setup {
+  font-weight: 600;
+}
+
+.print-choices__part {
+  white-space: nowrap;
+}
+
+.custom-file__estimate {
+  font-size: 0.85rem;
+}
+
+.custom-order__estimate,
+.order-processing__suggestion {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.filament-editors {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.filament-editor {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.filament-editor__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.filament-editor__header h3 {
+  margin: 0;
+}
+
+.filament-editor__colors {
+  margin: 0.5rem 0 0.75rem;
+}
+
+.print-settings__fit {
+  font-size: 0.85rem;
+}
+
+.print-settings__warning {
+  color: var(--warning);
+  font-weight: 600;
+}
+
+/* ---------- Order processing and log book ---------- */
+
+.order-processing__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 0 1.5rem;
+  align-items: start;
+}
+
+.order-processing__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 0.25rem;
+}
+
+.status-email {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.status-email .field {
+  margin-bottom: 0;
+}
+
+.status-email__notify {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.status-email__notify input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+.status-email__missing {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.email-preview {
+  margin: 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 0.85rem;
+}
+
+.email-preview figcaption {
+  margin-bottom: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.email-preview__body,
+.logbook__body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 0.88rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.email-preview__body {
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+.customer-message {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.customer-message h3 {
+  margin: 0 0 0.25rem;
+}
+
+.logbook__entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.logbook__entry {
+  position: relative;
+  padding: 0.75rem 0 0.75rem 1.25rem;
+  border-left: 2px solid var(--border);
+}
+
+/* A dot on the timeline, colored by the kind of entry. */
+.logbook__entry::before {
+  content: '';
+  position: absolute;
+  top: 1rem;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.logbook__entry--emailSent::before {
+  background: var(--primary);
+}
+
+.logbook__entry--emailImported::before {
+  background: var(--accent);
+}
+
+.logbook__entry > * {
+  margin: 0 0 0.25rem;
+}
+
+.logbook__time {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.logbook__title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.logbook__status {
+  font-weight: 400;
+}
+
+.logbook__subject {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.logbook__body {
+  max-height: 14rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  background: #f5f7fa;
+}
+
+.logbook__error {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.logbook__tag {
+  display: inline-block;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: #eef0f4;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.logbook__tag--sent {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.logbook__tag--outbox {
+  background: var(--info-bg);
+  color: #2b5cb8;
+}
+
+.logbook__tag--failed {
+  background: var(--error-bg);
+  color: var(--danger);
+}
+
+.logbook__tag--warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+/* ---------- Email templates ---------- */
+
+.email-templates__list {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.email-template {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.email-template__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.email-template__header h3 {
+  margin: 0;
+}
+
+.email-template__variables {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.75rem;
+  font-size: 0.8rem;
+}
+
+.variable-chip {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.variable-chip--required {
+  border-color: var(--primary);
+  color: var(--primary-dark);
+  font-weight: 700;
+}
+
+.email-template__problems {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+@media (max-width: 900px) {
+  .order-processing__grid {
+    grid-template-columns: 1fr;
+  }
+}
+/* ---------- Project pricing ---------- */
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.9rem;
+  font-weight: 600;
+}
+
+.input-unit {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.input-unit input {
+  min-width: 0;
+}
+
+/* Inside a .field label, the unit wrapper is not the label text. */
+.field > .input-unit {
+  font-size: inherit;
+  font-weight: 400;
+}
+
+.input-unit > .muted {
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.admin-table__thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pricing-page {
+  display: grid;
+  gap: 2rem;
+}
+
+.pricing-settings {
+  max-width: 760px;
+}
+
+.pricing-settings__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0 1rem;
+}
+
+.pricing-breakdown {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.pricing-breakdown caption {
+  text-align: left;
+  font-weight: 600;
+  color: var(--muted);
+  padding-bottom: 0.35rem;
+}
+
+.pricing-breakdown th,
+.pricing-breakdown td {
+  padding: 0.35rem 0;
+  text-align: left;
+  font-weight: 400;
+  border-bottom: 1px solid var(--border);
+}
+
+.pricing-breakdown td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.pricing-breakdown td:nth-child(2) {
+  padding: 0.35rem 0.75rem;
+}
+
+.pricing-breakdown tfoot th,
+.pricing-breakdown tfoot td {
+  font-weight: 700;
+  border-bottom: 0;
+  font-size: 1.05rem;
+}
+
+.project-review fieldset {
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 0;
+}
+
+.project-review legend {
+  margin-bottom: 0.4rem;
+  font-weight: 700;
+}
+
+.project-review__time {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.project-review__time .field {
+  width: 8rem;
+  margin-bottom: 0;
+}
+
+.project-review__row {
+  display: grid;
+  grid-template-columns: 9rem 10rem auto;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+}
+
+/* Slicer test (admin) */
+.slicer__model-info {
+  margin: -0.4rem 0 0.9rem;
+}
+
+.slicer__row {
+  margin-bottom: 0.9rem;
+}
+
+.slicer__options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.9rem;
+}
+
+.slicer__advanced {
+  margin-bottom: 1rem;
+}
+
+.slicer__advanced summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.slicer__advanced textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.slicer__actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.slicer__progress {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  margin-top: 1rem;
+  color: var(--muted);
+}
+
+.slicer__progress progress {
+  flex: 0 1 20rem;
+}
+
+.slicer__summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 1rem;
+  margin: 0 0 1.25rem;
+}
+
+.slicer__summary > div {
+  padding: 0.8rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.slicer__summary dt {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.slicer__summary dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.slicer__summary dd.muted {
+  font-size: 0.85rem;
+  font-weight: 400;
+}
+
+.slicer__tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.slicer__tables caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.4rem;
+}
+
+.slicer__meta {
+  margin-top: 1rem;
+  font-size: 0.85rem;
+}
+
+/* Print variants (product editor) */
+.print-variants__plate {
+  max-width: 24rem;
+}
+
+.print-variants__setup {
+  margin-bottom: 1rem;
+}
+
+.print-variants__matrix {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.print-variants__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.print-variants__group legend {
+  font-weight: 600;
+  padding: 0 0.3rem;
+}
+
+.print-variants__group .checkbox {
+  font-size: 0.9rem;
+}
+
+.print-variants__setup > .checkbox {
+  margin-bottom: 0.75rem;
+}
+
+.print-variants__setup textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.print-variants__table caption {
+  text-align: left;
+  font-weight: 600;
+  padding-bottom: 0.4rem;
+}
+
+.print-variants__table td {
+  vertical-align: top;
+}
+
+.print-variants__variant tr:first-child td {
+  border-top: 1px solid var(--border);
+}
+
+.print-variants__scale {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.print-variants__scale.is-original {
+  font-weight: 600;
+}
+
+.print-variants__missing {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.print-variants__table td:first-child {
+  min-width: 0;
+}
+
+.print-variants__table input[type='number'] {
+  width: 6.5rem;
+}
+
+.print-variants__variant.is-muted td {
+  opacity: 0.6;
+}
+
+.print-variants__presets,
+.print-variants__sliced {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+}
+
+.config-details__variant small {
+  display: block;
+}
+
+/* Print quality: the print variants the shop sliced for a plate. */
+.variant-options {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.variant-option {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.15rem 0.75rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.variant-option:hover {
+  border-color: var(--accent);
+}
+
+.variant-option.is-selected {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+}
+
+.variant-option:has(input:focus-visible) {
+  outline: 3px solid rgba(31, 138, 138, 0.4);
+  outline-offset: 2px;
+}
+
+.variant-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.variant-option__label {
+  font-weight: 600;
+}
+
+.variant-option__facts {
+  grid-column: 1;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.variant-option__price {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Scaling (product editor) */
+.scaling__original {
+  margin: 0 0 0.75rem;
+}
+
+.scaling__toggle {
+  margin: 0.25rem 0 0.75rem;
+}
+
+.fixed-size {
+  margin: 0 0 1.2rem;
+}
+
+/* Print requests: slicing with the customer's profile (admin). */
+.custom-slicing__file {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.custom-slicing__file h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.custom-slicing__facts {
+  display: block;
+}
+
+.custom-slicing__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.custom-slicing__actions .slicer__progress {
+  margin-top: 0;
+}
+
+.custom-slicing__result {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem 1rem;
+  align-items: start;
+}
+
+.custom-slicing__result > p,
+.custom-slicing__result > .custom-slicing__actions {
+  grid-column: 1 / -1;
+}
+
+.custom-slicing__total {
+  margin: 0.75rem 0 0;
+}
+
+/* Orders: how each item is sliced (from its model source) and the order's price. */
+.item-slicing {
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.item-slicing > p {
+  margin: 0 0 0.4rem;
+}
+
+.item-slicing__runs {
+  margin: 0 0 0.4rem;
+  padding-left: 1.1rem;
+  font-size: 0.9rem;
+}
+
+/* Models of an item sliced one after another (project files, the models of a Print on Demand set). */
+.item-slicing__jobs {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.item-slicing__job {
+  padding: 0.4rem 0;
+}
+
+.item-slicing__job + .item-slicing__job {
+  border-top: 1px solid var(--border);
+}
+
+.item-slicing__job .field {
+  margin: 0.4rem 0 0;
+  max-width: 28rem;
+}
+
+/* Files for printing: the shop's copies of an order's project files. */
+.print-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.print-files__file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+
+.print-files__file > div:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.print-files__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.print-files__error {
+  color: var(--danger);
+}
+
+.item-slicing__presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 0 0.75rem;
+  align-items: end;
+}
+
+.item-slicing__presets .checkbox {
+  margin-bottom: 0.9rem;
+}
+
+.item-slicing__row {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.item-slicing__row > span:first-child {
+  min-width: 8rem;
+}
+
+.order-processing__fixed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.6rem;
+  margin: 0 0 0.9rem;
+}
+
+.order-price__total {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.print-on-demand-set + .print-on-demand-set {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+/* Print on Demand: the print file, scaling and variants of a product. */
+.project-print-setup__actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Printers warehouse: printers and printer models, their lists and forms. */
+.printers-nav {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin-bottom: 1.25rem;
+  padding: 0.25rem;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.printers-nav a {
+  padding: 0.35rem 0.9rem;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.printers-nav a.is-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.printer-editor__model {
+  margin: 0 0 0.9rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: var(--info-bg);
+  font-size: 0.9rem;
+}
+
+.printer-editor__model dl {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2rem;
+  margin: 0 0 0.4rem;
+}
+
+.printer-editor__model dt {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.printer-editor__model dd {
+  margin: 0;
+  font-weight: 600;
+}
+
+.printer-editor__model p {
+  margin: 0;
+}
+
+.printer-editor__manage {
+  align-self: center;
+  margin-left: auto;
+  font-size: 0.9rem;
+}
+
+.printer-model-page form {
+  max-width: 860px;
+  margin-top: 0.75rem;
+}
+
+.printer-model-page__printers {
+  margin: 0 0 0.75rem;
+  padding-left: 1.2rem;
+}
+
+.printers__count {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+}
+
+.printers__notes {
+  max-width: 260px;
+  font-size: 0.8rem;
+  white-space: pre-line;
+}
+
+.printers__profiles {
+  font-size: 0.85rem;
+}
+
+.printers__profiles .link-button,
+.printer-editor .link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.printer-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 0 1rem;
+}
+
+.printer-editor__plate {
+  margin: 0 0 0.9rem;
+  padding: 0;
+  border: 0;
+}
+
+.printer-editor__plate legend {
+  margin-bottom: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+
+.printer-editor__profiles .field {
+  margin-bottom: 0;
+}
+
+.printer-editor__current {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+  font-size: 0.9rem;
+}
+
+.printer-editor__contents {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.printer-editor__contents summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+
+.printer-editor__contents p {
+  margin: 0.4rem 0 0;
+}
+
+.printer-editor__contents ul {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+  max-height: 12rem;
+  overflow-y: auto;
+}
+
+.printer-editor__problems {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem 0.75rem 2rem;
+  border-radius: 8px;
+  background: var(--error-bg);
+  color: var(--danger);
+}
+
+.printer-editor__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Print queues: a printer's queue and queueing an order. */
+.printer-queue__notify {
+  margin: 0 0 0.75rem;
+}
+
+.printer-queue__printing {
+  background: #f6f1fd;
+}
+
+.printer-queue__models {
+  max-width: 18rem;
+  overflow-wrap: anywhere;
+}
+
+.order-processing__queue {
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.75rem;
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.order-processing__queue .field:last-child {
+  margin-bottom: 0;
 }
